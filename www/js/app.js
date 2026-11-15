@@ -6,7 +6,7 @@ import {
   initUiState, uiGet, uiSet, editMenu, splitter, relTime,
 } from './util.js';
 import { t, setLang, getLang } from './i18n.js';
-import { NoteView, createSidebar, dirOf, stemOf, extOf, joinRel, conflictOriginal } from './notes.js';
+import { NoteView, createSidebar, forgetImages, dirOf, stemOf, extOf, joinRel, conflictOriginal } from './notes.js';
 import { createSyncer, syncSettingsPane } from './sync.js';
 
 // ───────────────────────── state ─────────────────────────
@@ -46,6 +46,7 @@ const ctx = {
   changed: () => { renderTabs(); renderToolbar(); renderStatusbar(); },
   saved: () => { sidebar.refresh(); syncAfterSave(); },
   openNote: (rel, opts) => openNote(rel, opts),
+  refreshTree: () => sidebar.refresh(),
   activeRel: () => cur()?.rel || '',
   newNote: (dir) => newNote(dir),
   newFolder: (dir) => newFolder(dir),
@@ -71,7 +72,11 @@ const syncer = createSyncer({
     const exists = new Set(entries.filter((e) => !e.dir).map((e) => e.rel));
     // notes deleted by the sync: their tabs close (unless there are edits to keep)
     for (let i = S.tabs.length - 1; i >= 0; i--) if (!exists.has(S.tabs[i].rel) && !S.tabs[i].isDirty()) closeTab(i, true);
+    forgetImages();
     for (const v of S.tabs) await v.checkExternal();
+    // pictures may have arrived with the sync
+    const av = cur();
+    if (av?.root && av.mode !== 'edit') av.renderPreview();
     await loadSyncInfo();
     if (reports.some((r) => r.conflicts?.length)) renderAll();
   },
@@ -969,6 +974,7 @@ async function boot() {
     if (Date.now() - lastFocus < 1000) return;
     lastFocus = Date.now();
     await sidebar.refresh();
+    forgetImages();
     for (const v of S.tabs) await v.checkExternal();
     if (!cur()) renderContent();
   });

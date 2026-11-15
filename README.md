@@ -117,14 +117,16 @@ src-tauri/src/
   update.rs     Self-update
 www/js/
   app.js        Tabs, toolbar, welcome page, settings, AI panel, about, update, sync schedule
-  notes.js      Notes tree, editor, Markdown preview
+  notes.js      Notes tree, editor (formatting toolbar, images), preview
+  markdown.js   Markdown → safe HTML (marked + DOMPurify, footnotes, ==highlight==)
+www/vendor/     marked 18.2.0 (MIT) and DOMPurify 3.4.18 (Apache-2.0 / MPL-2.0)
   sync.js       Sync target dialogs, sign-in flows, running the sync
   i18n.js, i18n-en.js  Hungarian → English translations
 ```
 
 ## License
 
-NoteStar is freeware: free to download and use, including at work, but it may not be copied, redistributed, published, sold, or modified without the author's written permission. See [LICENSE](LICENSE).
+NoteStar is freeware: free to download and use, including at work, but it may not be copied, redistributed, published, sold, or modified without the author's written permission. See [LICENSE](LICENSE). The bundled third-party libraries in `www/vendor/` keep their own licenses (`LICENSE-marked.md`, `LICENSE-dompurify.txt`).
 
 If NoteStar is useful to you, you can support its development with a small [donation](https://www.c64va.pro/register/donate.php).
 
