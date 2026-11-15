@@ -2,11 +2,11 @@
 // AI panel, about, self-update and the sync schedule. Notes: notes.js, sync: sync.js.
 
 import {
-  invoke, h, icon, toast, modal, confirmDlg, contextMenu, markdown, debounce, basename,
+  invoke, h, icon, toast, modal, confirmDlg, contextMenu, debounce, basename,
   initUiState, uiGet, uiSet, editMenu, splitter, relTime,
 } from './util.js';
 import { t, setLang, getLang } from './i18n.js';
-import { NoteView, createSidebar, forgetImages, dirOf, stemOf, extOf, joinRel, conflictOriginal } from './notes.js';
+import { NoteView, createSidebar, forgetImages, mdRender, dirOf, stemOf, extOf, joinRel, conflictOriginal } from './notes.js';
 import { createSyncer, syncSettingsPane } from './sync.js';
 
 // ───────────────────────── state ─────────────────────────
@@ -47,6 +47,7 @@ const ctx = {
   saved: () => { sidebar.refresh(); syncAfterSave(); },
   openNote: (rel, opts) => openNote(rel, opts),
   refreshTree: () => sidebar.refresh(),
+  linkImage: (rel) => { const v = cur(); if (v?.root) v.linkImage(rel); else toast(t('Előbb nyiss meg egy jegyzetet.'), 'err'); },
   activeRel: () => cur()?.rel || '',
   newNote: (dir) => newNote(dir),
   newFolder: (dir) => newFolder(dir),
@@ -149,6 +150,8 @@ function persistSession() {
 // ───────────────────────── notes: open / create / rename / delete ─────────────────────────
 
 async function openNote(rel, { line, find, background } = {}) {
+  // a picture is not a note: show it with the system viewer
+  if (/\.(png|jpe?g|gif|webp|svg|bmp|avif|ico)$/i.test(rel)) { ctx.openExternal(rel); return null; }
   let i = S.tabs.findIndex((v) => v.rel === rel);
   if (i < 0) {
     const v = new NoteView(ctx, rel);
@@ -163,6 +166,16 @@ async function openNote(rel, { line, find, background } = {}) {
   renderAll();
   if (line) setTimeout(() => S.tabs[i]?.gotoLine(line, find), 30);
   return S.tabs[i];
+}
+
+/** Closing a tab asks first: the × is easy to hit by accident. */
+async function askCloseTab(i) {
+  const v = S.tabs[i];
+  if (!v) return;
+  const ok = await confirmDlg(t('Fül bezárása'),
+    t('Bezárod a(z) „{0}” fület?\nA jegyzet a lemezen megmarad, később újra megnyithatod.', v.title()), t('Bezárás'));
+  const idx = S.tabs.indexOf(v);
+  if (ok && idx >= 0) await closeTab(idx);
 }
 
 async function closeTab(i, silent = false) {
@@ -335,18 +348,18 @@ function renderTabs() {
     ...S.tabs.map((v, i) => h('div.tab' + (i === S.active ? '.active' : ''), {
       title: v.tooltip(),
       on: {
-        mousedown: (e) => { if (e.button === 1) { e.preventDefault(); closeTab(i); } },
+        mousedown: (e) => { if (e.button === 1) { e.preventDefault(); askCloseTab(i); } },
         click: () => switchTab(i),
         contextmenu: (e) => contextMenu(e, [
           { label: t('Átnevezés…'), icon: 'rename', key: 'F2', action: () => renameEntry(v.rel, false) },
           { label: t('Megjelenítés a mappában'), icon: 'folderOpen', action: () => ctx.reveal(v.rel) },
           '-',
-          { label: t('Bezárás'), icon: 'close', key: 'Ctrl+W', action: () => closeTab(i) },
+          { label: t('Bezárás'), icon: 'close', key: 'Ctrl+W', action: () => askCloseTab(i) },
           { label: t('A többi bezárása'), action: async () => { for (let k = S.tabs.length - 1; k >= 0; k--) if (S.tabs[k] !== v) await closeTab(k); } },
         ]),
       },
     }, icon(conflictOriginal(v.rel) ? 'warnTri' : 'note'), h('span.name', v.title()), v.isDirty() ? h('span.tab-dirty', { title: t('Nem mentett') }, '●') : null,
-    h('button.x', { title: t('Bezárás'), on: { click: (e) => { e.stopPropagation(); closeTab(i); } } }, icon('close')))),
+    h('button.x', { title: t('Bezárás'), on: { click: (e) => { e.stopPropagation(); askCloseTab(i); } } }, icon('close')))),
     h('button.tab-add', { title: t('Új jegyzet (Ctrl+N)'), on: { click: () => newNote(cur() ? dirOf(cur().rel) : '') } }, icon('plus')),
   );
 }
@@ -424,7 +437,7 @@ function renderContent() {
 }
 
 function renderWelcome(el) {
-  const recent = sidebar.entries().filter((e) => !e.dir).sort((a, b) => b.mtime - a.mtime).slice(0, 10);
+  const recent = sidebar.entries().filter((e) => !e.dir && !e.image).sort((a, b) => b.mtime - a.mtime).slice(0, 10);
   const card = (ic, title, desc, key, action) => h('button.wl-card', { on: { click: action } }, icon(ic), h('b', title), h('span', desc), key ? h('kbd', key) : null);
   const hasTargets = (S.settings.targets || []).length > 0;
   el.replaceChildren(h('div.welcome', h('div.welcome-box',
@@ -482,7 +495,14 @@ function aiPanel(title, run, presets = [], actions = () => []) {
       const res = await run(q || null, history.slice());
       wait.remove();
       history.push({ q: q || '', a: res.text });
-      const out = h('div.ai-ans', { html: markdown(res.text) });
+      const out = h('div.ai-ans', { html: mdRender(res.text) });
+      // links open in the browser; the window itself must never navigate
+      out.addEventListener('click', (e) => {
+        const a = e.target.closest('a[href]');
+        if (!a) return;
+        e.preventDefault();
+        if (/^(https?|mailto):/i.test(a.getAttribute('href'))) invoke('open_url', { url: a.getAttribute('href') }).catch((err) => toast(String(err), 'err'));
+      });
       const acts = actions(res.text).filter(Boolean);
       body.append(out, acts.length ? h('div.ai-acts', acts.map((a) => h('button.btn.sm' + (a.primary ? '.primary' : ''), { on: { click: () => a.fn() } }, a.icon ? icon(a.icon) : null, a.label))) : null);
       if (res.truncated) body.append(h('div.ai-q', t('Megjegyzés: a jegyzet túl nagy volt, csak az eleje került elemzésre.')));
@@ -1014,7 +1034,7 @@ async function boot() {
     else if (mod && key === 'f' && v) { e.preventDefault(); v.openFind(); }
     else if (mod && key === 'e' && v) { e.preventDefault(); v.setMode(v.mode === 'preview' ? 'edit' : 'preview'); }
     else if (mod && key === 's') { e.preventDefault(); saveAll(); }
-    else if (mod && key === 'w') { e.preventDefault(); if (S.active >= 0) closeTab(S.active); }
+    else if (mod && key === 'w') { e.preventDefault(); if (S.active >= 0) askCloseTab(S.active); }
     else if (mod && e.key === 'Tab' && S.tabs.length > 1) { e.preventDefault(); switchTab((S.active + (e.shiftKey ? S.tabs.length - 1 : 1)) % S.tabs.length); }
     else if (mod && key === ',') { e.preventDefault(); settingsDlg(); }
     else if (e.key === 'Escape') { const ai = document.querySelector('.ai-panel'); if (ai) ai.remove(); else if (v?.findBar) v.closeFind(); }

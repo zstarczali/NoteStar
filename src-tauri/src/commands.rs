@@ -66,7 +66,8 @@ pub fn default_notes_dir(state: State<'_, AppState>) -> String {
 
 #[tauri::command]
 pub async fn list_notes(state: State<'_, AppState>) -> Result<Vec<notes::Entry>, String> {
-    let (root, exts) = (state.notes_dir(), state.settings.get().note_exts());
+    // the notes and the pictures next to them (marked `image`)
+    let (root, exts) = (state.notes_dir(), state.settings.get().sync_exts());
     blocking(move || notes::list(&root, &exts)).await
 }
 

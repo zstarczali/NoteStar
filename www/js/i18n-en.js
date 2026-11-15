@@ -396,4 +396,9 @@ export const EN = {
   'A magasság arányosan igazodik.': 'The height follows proportionally.',
   'Érvénytelen méret: {0}': 'Invalid size: {0}',
   'Eredeti méret': 'Original size',
+  'Fül bezárása': 'Close tab',
+  'Bezárod a(z) „{0}” fület?\nA jegyzet a lemezen megmarad, később újra megnyithatod.': 'Close the "{0}" tab?\nThe note stays on disk, you can open it again later.',
+  'Megtekintés': 'View',
+  'Beszúrás a jegyzetbe': 'Insert into the note',
+  'Előbb nyiss meg egy jegyzetet.': 'Open a note first.',
 };
