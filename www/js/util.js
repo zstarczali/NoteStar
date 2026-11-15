@@ -156,6 +156,8 @@ Object.assign(P, {
   fmtUl: '<path d="M9 6h12M9 12h12M9 18h12"/><circle cx="4.5" cy="6" r="1.2"/><circle cx="4.5" cy="12" r="1.2"/><circle cx="4.5" cy="18" r="1.2"/>',
   fmtOl: '<path d="M10 6h11M10 12h11M10 18h11"/><path d="M4 4.5 5.5 4v4"/><path d="M3.8 11a1.4 1.4 0 0 1 2.6.6c0 .9-2.6 1.9-2.6 2.9h2.8"/><path d="M3.8 16.6h2.4l-1.3 1.4a1.3 1.3 0 1 1-1.2 1.7"/>',
   fmtQuote: '<path d="M4 6v12"/><path d="M9 8h11M9 12h11M9 16h7"/>',
+  fmtImage: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.8"/><path d="m21 16-5.5-5.5L6 20"/>',
+  fmtTable: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9.5 4v16M15 4v16"/>',
   fmtHr: '<path d="M3 12h18"/><path d="M7 6h10M7 18h10" opacity=".45"/>',
 });
 Object.assign(AI_P, {

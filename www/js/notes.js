@@ -1,8 +1,8 @@
 // NoteStar – the notes tree (sidebar) and the note editor with Markdown preview.
 
-import { invoke, h, icon, toast, modal, contextMenu, debounce, esc, relTime, basename, uiGet, uiSet } from './util.js';
+import { invoke, h, icon, toast, modal, contextMenu, formDlg, debounce, esc, relTime, basename, uiGet, uiSet } from './util.js';
 import { t } from './i18n.js';
-import { mdRender, taskLines, resolveRel, relLink } from './markdown.js';
+import { mdRender, taskLines, resolveRel, relLink, setImageSize } from './markdown.js';
 
 export { mdRender };
 
@@ -196,6 +196,67 @@ export function createSidebar(ctx) {
   };
 }
 
+// ───────────────────────── preview images / help ─────────────────────────
+
+/** Local time for file names: 2026-11-15 19-47-12 */
+const stamp = (d = new Date()) => { const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`; };
+
+const imgCache = new Map(); // rel → Promise<data URL>
+function loadImage(rel) {
+  let p = imgCache.get(rel);
+  if (!p) {
+    p = invoke('image_data', { rel });
+    p.catch(() => imgCache.delete(rel));
+    imgCache.set(rel, p);
+    while (imgCache.size > 80) imgCache.delete(imgCache.keys().next().value);
+  }
+  return p;
+}
+/** Images may have changed on disk (sync, other program). */
+export const forgetImages = () => imgCache.clear();
+
+/** Markdown cheat sheet: the source and what it looks like. */
+function mdHelp() {
+  const x = t('szöveg');
+  const rows = [
+    [t('Címsorok'), `# ${t('Cím')} 1\n## ${t('Cím')} 2\n### ${t('Cím')} 3`],
+    [t('Kiemelések'), `**${t('félkövér')}**, *${t('dőlt')}*, ***${t('mindkettő')}***\n~~${t('áthúzott')}~~, ==${t('kiemelt')}==, \`${t('kód')}\``],
+    [t('Felsorolás'), `- ${x}\n- ${x}\n  - ${t('beljebb')}`],
+    [t('Számozott lista'), `1. ${x}\n2. ${x}`],
+    [t('Teendők'), `- [ ] ${t('nyitott')}\n- [x] ${t('kész')}`],
+    [t('Idézet'), `> ${x}\n>> ${t('beljebb')}`],
+    [t('Hivatkozás'), `[NoteStar](https://example.com)\n<https://example.com>\n[${t('másik jegyzet')}](${t('Másik')}.md)\n[${t('ugrás címhez')}](#${slugHint(t('Cím'))}-1)`],
+    [t('Kép'), `![${t('leírás')}](attachments/${t('kép')}.png)`],
+    [t('Kép mérete'), `![${t('leírás')}|120](attachments/${t('kép')}.png)
+![${t('leírás')}](attachments/${t('kép')}.png =60x)
+<img src="attachments/${t('kép')}.png" width="30%">`],
+    [t('Táblázat'), `| ${t('Bal')} | ${t('Közép')} | ${t('Jobb')} |\n| :-- | :-: | --: |\n| 1 | 2 | 3 |`],
+    [t('Kódblokk'), '```js\nconsole.log("hi");\n```'],
+    [t('Elválasztó vonal'), '---'],
+    [t('Sortörés, bekezdés'), `${t('Egy sor')}\n${t('új sor')}\n\n${t('Új bekezdés')}`],
+    [t('Feloldás'), `\\*${t('nem dőlt')}\\*`],
+    ['HTML', `<kbd>Ctrl</kbd> + <kbd>S</kbd>, H<sub>2</sub>O, x<sup>2</sup>`],
+  ];
+  const body = h('div.md-help',
+    h('div.desc', t('A jegyzetek teljes Markdown-t ismernek (CommonMark + GitHub kiegészítések). Képet beilleszthetsz a vágólapról (Ctrl+V) vagy behúzhatsz a szerkesztőbe; a jegyzet melletti „attachments” mappába kerül, és szinkronizálódik.')),
+    h('table', h('tbody', rows.map(([label, src]) => {
+      const out = h('td.md-view');
+      out.innerHTML = mdRender(src);
+      // the examples point to a made-up file: show a built-in picture instead
+      for (const img of out.querySelectorAll('img')) img.src = SAMPLE_IMG;
+      return h('tr', h('th', label), h('td', h('pre', src)), out);
+    }))));
+  // examples only: links must not navigate the app window away
+  body.addEventListener('click', (e) => { if (e.target.closest('a, input')) e.preventDefault(); });
+  modal({ title: t('Markdown súgó'), body, wide: true, buttons: [{ label: t('Bezárás'), value: null, primary: true }] });
+}
+const SAMPLE_IMG = 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" width="240" height="120" viewBox="0 0 240 120">'
+  + '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1e1b4b"/><stop offset="1" stop-color="#4c1d95"/></linearGradient>'
+  + '<linearGradient id="s" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#facc15"/><stop offset=".5" stop-color="#fb923c"/><stop offset="1" stop-color="#ec4899"/></linearGradient></defs>'
+  + '<rect width="240" height="120" rx="10" fill="url(#g)"/><path d="M0 120 L70 62 L110 92 L160 44 L240 104 V120 Z" fill="#6366f1" opacity=".55"/>'
+  + '<path d="M190 18l5.9 12 13.1 1.9-9.5 9.3 2.2 13.1L190 48.1l-11.7 6.2 2.2-13.1-9.5-9.3 13.1-1.9z" fill="url(#s)"/></svg>');
+const slugHint = (s) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, '-');
+
 function highlight(snippet, q) {
   const s = esc(snippet);
   if (!q) return s;
@@ -341,11 +402,33 @@ export class NoteView {
       const p = this.preview.parentElement;
       p.scrollTop = r * (p.scrollHeight - p.clientHeight);
     });
+    const imgMenu = (e) => {
+      const img = e.target.closest('img[data-raw]');
+      if (!img || this.lossy) return false;
+      this.imageMenu(e, img);
+      return true;
+    };
+    this.preview.addEventListener('contextmenu', (e) => { imgMenu(e); });
     this.preview.addEventListener('click', (e) => {
-      const a = e.target.closest('a[data-href]');
-      if (a) { e.preventDefault(); invoke('open_url', { url: a.dataset.href }).catch((err) => toast(String(err), 'err')); return; }
+      if (!e.target.closest('a') && imgMenu(e)) return;
+      const a = e.target.closest('a[href]');
+      if (a) { e.preventDefault(); this.followLink(a.getAttribute('href')); return; }
       const cb = e.target.closest('input[type=checkbox][data-line]');
       if (cb) this.toggleTask(+cb.dataset.line);
+    });
+    // images: pasted from the clipboard or dropped from Explorer are saved next to the note
+    this.ta.addEventListener('paste', (e) => {
+      const files = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith('image/'));
+      if (!files.length || this.lossy) return;
+      e.preventDefault();
+      this.addImages(files, true);
+    });
+    this.ta.addEventListener('dragover', (e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+    this.ta.addEventListener('drop', (e) => {
+      const files = [...(e.dataTransfer?.files || [])].filter((f) => f.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp|avif|ico)$/i.test(f.name));
+      if (!files.length || this.lossy) return;
+      e.preventDefault();
+      this.addImages(files, false);
     });
     this.preview.addEventListener('dblclick', () => { if (this.mode === 'preview') this.setMode('edit'); });
   }
@@ -399,7 +482,11 @@ export class NoteView {
       b('fmtQuote', t('Idézet'), () => this.fmtLines('quote')),
       sep(),
       b('link', t('Hivatkozás (Ctrl+K)'), () => this.fmtLink()),
-      b('fmtHr', t('Elválasztó vonal'), () => this.fmtHr()));
+      b('fmtImage', t('Kép beszúrása (beillesztés és behúzás is működik)'), () => this.pickImage()),
+      b('fmtTable', t('Táblázat'), () => this.fmtTable()),
+      b('fmtHr', t('Elválasztó vonal'), () => this.fmtHr()),
+      h('span.grow'),
+      b('info', t('Markdown súgó'), () => mdHelp()));
     this.tools.classList.toggle('disabled', !!this.lossy);
   }
 
@@ -535,6 +622,134 @@ export class NoteView {
 
   renderPreview() {
     this.preview.innerHTML = mdRender(this.text) || `<p class="dim">${esc(t('(üres jegyzet)'))}</p>`;
+    // task boxes: clickable, tied to their source line
+    const lines = taskLines(this.text);
+    this.preview.querySelectorAll('li input[type=checkbox]').forEach((cb, i) => {
+      const li = cb.closest('li');
+      li.classList.add('task');
+      li.classList.toggle('done', cb.checked);
+      if (li.parentElement) li.parentElement.classList.add('tasks');
+      if (lines[i] == null) return;
+      cb.disabled = this.lossy;
+      cb.dataset.line = lines[i];
+    });
+    // pictures of the notes folder: the webview cannot read files, ask the backend
+    const seen = new Map();
+    for (const img of this.preview.querySelectorAll('img')) {
+      img.loading = 'lazy';
+      // remembered for the size menu: which image of the source this is
+      const raw = img.getAttribute('src') || '';
+      img.dataset.raw = raw;
+      img.dataset.nth = seen.get(raw) || 0;
+      seen.set(raw, +img.dataset.nth + 1);
+      const rel = resolveRel(this.rel, raw);
+      if (!rel) continue;
+      img.removeAttribute('src');
+      img.dataset.rel = rel;
+      loadImage(rel).then((url) => { img.src = url; }, () => { img.classList.add('broken'); img.title = t('A kép nem található: {0}', rel); });
+    }
+  }
+
+  /** Size menu of an image in the preview; the size is written into the note. */
+  imageMenu(e, img) {
+    const set = (size) => {
+      const text = setImageSize(this.text, img.dataset.raw, +img.dataset.nth, size);
+      if (text == null) { toast(t('A kép nem található a jegyzet szövegében.'), 'err'); return; }
+      if (text !== this.text) this.setText(text);
+      if (this.mode !== 'edit') this.renderPreview();
+    };
+    const cur = img.getAttribute('width') || '';
+    const nat = img.naturalWidth ? `${img.naturalWidth} × ${img.naturalHeight} px` : '';
+    contextMenu(e, [
+      { header: t('Kép mérete') + (nat ? ` (${t('eredeti')}: ${nat})` : '') },
+      ...['25%', '50%', '75%', '100%'].map((p) => ({ label: p + (cur === p ? '  ✓' : ''), icon: 'fmtImage', action: () => set(p) })),
+      ...['200', '400', '600'].map((p) => ({ label: `${p} px` + (cur === p ? '  ✓' : ''), icon: 'fmtImage', action: () => set(p) })),
+      { label: t('Egyéni méret…'), icon: 'rename', action: async () => {
+        const r = await formDlg(t('Kép mérete'), [{ name: 'w', label: t('Szélesség (px vagy %)'), value: cur, placeholder: '320 / 60%' }], 'OK',
+          t('A magasság arányosan igazodik.'));
+        if (!r) return;
+        const w = String(r.w || '').trim().replace(/\s*px$/i, '');
+        if (w && !/^\d{1,5}%?$/.test(w)) { toast(t('Érvénytelen méret: {0}', w), 'err'); return; }
+        set(w);
+      } },
+      '-',
+      { label: t('Eredeti méret'), icon: 'undo', disabled: !cur && !img.getAttribute('height'), action: () => set('') },
+    ]);
+  }
+
+  followLink(href) {
+    if (!href) return;
+    if (href.startsWith('#')) {
+      const id = decodeURIComponent(href.slice(1));
+      const el = this.preview.querySelector(`[id="h-${CSS.escape(id)}"]`) || this.preview.querySelector(`[id="${CSS.escape(id)}"]`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    if (/^(https?|mailto|ftp):/i.test(href)) { invoke('open_url', { url: href }).catch((err) => toast(String(err), 'err')); return; }
+    const rel = resolveRel(this.rel, href);
+    if (!rel) return;
+    if (/\.(md|markdown|txt)$/i.test(rel)) this.ctx.openNote(rel);
+    else this.ctx.openExternal(rel);
+  }
+
+  /** Saves image files next to the note and links them at the caret. */
+  async addImages(files, pasted) {
+    const links = [];
+    for (const f of files) {
+      try {
+        const data = await new Promise((ok, bad) => {
+          const r = new FileReader();
+          r.onload = () => ok(String(r.result).split(',')[1] || '');
+          r.onerror = () => bad(r.error);
+          r.readAsDataURL(f);
+        });
+        const ext = (f.type.split('/')[1] || 'png').replace('jpeg', 'jpg').replace('svg+xml', 'svg');
+        // a screenshot from the clipboard is always "image.png": give it a date instead
+        const name = pasted || !f.name ? `${t('kép')} ${stamp()}.${ext}` : f.name;
+        const rel = await invoke('save_image', { note: this.rel, name, data });
+        links.push(`![${stemOf(rel)}](${relLink(this.rel, rel)})`);
+      } catch (e) { toast(t('A kép mentése nem sikerült: {0}', String(e)), 'err'); }
+    }
+    if (links.length) this.insertBlock(links.join('\n'));
+    this.ctx.refreshTree?.();
+  }
+
+  /** Picks image files in a dialog. */
+  async pickImage() {
+    const sel = await invoke('plugin:dialog|open', { options: {
+      multiple: true, title: t('Kép beszúrása'),
+      filters: [{ name: t('Képek'), extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif', 'ico'] }],
+    } }).catch(() => null);
+    const paths = !sel ? [] : Array.isArray(sel) ? sel : [sel];
+    const links = [];
+    for (const p of paths) {
+      try {
+        const rel = await invoke('import_image', { note: this.rel, path: p });
+        links.push(`![${stemOf(rel)}](${relLink(this.rel, rel)})`);
+      } catch (e) { toast(t('A kép mentése nem sikerült: {0}', String(e)), 'err'); }
+    }
+    if (links.length) this.insertBlock(links.join('\n'));
+    this.ctx.refreshTree?.();
+  }
+
+  /** Inserts text on its own line(s) at the caret. */
+  insertBlock(text) {
+    const { selectionStart: a, value } = this.ta;
+    const pre = a > 0 && value[a - 1] !== '\n' ? '\n' : '';
+    const post = value[a] && value[a] !== '\n' ? '\n' : '';
+    this.ta.setSelectionRange(a, a);
+    this.insert(pre + text + post);
+  }
+
+  fmtTable() {
+    const c1 = t('Oszlop 1'), c2 = t('Oszlop 2'), c3 = t('Oszlop 3');
+    const table = `| ${c1} | ${c2} | ${c3} |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |`;
+    const { selectionStart: a, value } = this.ta;
+    const pre = a > 0 ? (value[a - 1] === '\n' ? (value[a - 2] === '\n' || a < 2 ? '' : '\n') : '\n\n') : '';
+    this.ta.setSelectionRange(a, a);
+    this.insert(pre + table + '\n');
+    const at = a + pre.length + 2;
+    this.ta.setSelectionRange(at, at + c1.length);
   }
 
   mount(el) {
