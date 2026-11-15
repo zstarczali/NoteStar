@@ -119,6 +119,29 @@ pub fn note_path(state: State<'_, AppState>, rel: String) -> Result<String, Stri
     notes::safe_join(&state.notes_dir(), &rel).map(|p| p.to_string_lossy().into_owned())
 }
 
+/// A pasted / dropped image (base64) saved next to note `note`. Returns its path.
+#[tauri::command]
+pub async fn save_image(state: State<'_, AppState>, note: String, name: String, data: String) -> Result<String, String> {
+    use base64::Engine;
+    let root = state.notes_dir();
+    let bytes = base64::engine::general_purpose::STANDARD.decode(data.trim()).map_err(|e| e.to_string())?;
+    blocking(move || notes::save_image(&root, &note, &name, &bytes)).await
+}
+
+/// An image file picked in a dialog, copied next to note `note`. Returns its path.
+#[tauri::command]
+pub async fn import_image(state: State<'_, AppState>, note: String, path: String) -> Result<String, String> {
+    let root = state.notes_dir();
+    blocking(move || notes::import_image(&root, &note, Path::new(&path))).await
+}
+
+/// An image of the notes folder as a data: URL (the preview cannot read files itself).
+#[tauri::command]
+pub async fn image_data(state: State<'_, AppState>, rel: String) -> Result<String, String> {
+    let root = state.notes_dir();
+    blocking(move || notes::image_data_url(&root, &rel)).await
+}
+
 // ───────────────────────────── sync ─────────────────────────────
 
 fn find_target(s: &Settings, id: &str) -> Result<Target, String> {
@@ -131,7 +154,7 @@ pub async fn sync_run(app: tauri::AppHandle, state: State<'_, AppState>, id: Str
     let s = state.settings.get();
     let target = find_target(&s, &id)?;
     let notes_dir = state.notes_dir();
-    let exts = s.note_exts();
+    let exts = s.sync_exts();
     let state_dir = state.settings.dir();
     let store = &state.settings;
     let progress = |done: usize, total: usize, file: &str| {

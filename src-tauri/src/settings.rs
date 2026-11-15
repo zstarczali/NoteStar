@@ -189,6 +189,19 @@ impl Settings {
             .collect();
         if list.iter().any(|e| e == "*") { vec![] } else { list }
     }
+
+    /// What the sync carries: the notes and the images they show.
+    pub fn sync_exts(&self) -> Vec<String> {
+        let mut list = self.note_exts();
+        if !list.is_empty() {
+            for e in crate::notes::IMAGE_EXTS {
+                if !list.iter().any(|x| x == e) {
+                    list.push(e.to_string());
+                }
+            }
+        }
+        list
+    }
 }
 
 pub struct SettingsStore {
