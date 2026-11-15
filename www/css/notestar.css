@@ -124,7 +124,10 @@
 .md-view li { margin: .12em 0; }
 .md-view li > p { margin: .2em 0; }
 .md-view ul ul, .md-view ul ol, .md-view ol ul, .md-view ol ol { margin: .1em 0; }
-.md-view li.task, .md-view li:has(> input[type=checkbox]), .md-view li:has(> p > input[type=checkbox]) { list-style: none; margin-left: -1.3em; }
+.md-view li.task, .md-view li:has(> input[type=checkbox]), .md-view li:has(> p > input[type=checkbox]) { list-style: none; }
+/* task lists: the box takes the place of the bullet, nested lists still indent */
+.md-view ul.tasks, .md-view ul:has(> li > input[type=checkbox]), .md-view ul:has(> li > p > input[type=checkbox]) { padding-left: .2em; }
+.md-view li ul.tasks, .md-view li ul:has(> li > input[type=checkbox]) { padding-left: 1.5em; }
 .md-view li.task input { margin: 0 .5em 0 0; vertical-align: -1px; accent-color: var(--accent); cursor: pointer; }
 .md-view li.task.done { color: var(--text-dim); text-decoration: line-through; text-decoration-color: var(--text-faint); }
 .md-view code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-size: .9em; font-family: "Cascadia Mono", Consolas, monospace; }
@@ -209,3 +212,14 @@
 .md-view .footnotes .fn { display: flex; gap: 6px; align-items: baseline; }
 .md-view .footnotes .fn > div > :first-child { margin-top: 0; } .md-view .footnotes .fn > div > :last-child { margin-bottom: 0; }
 .md-view .footnotes .fn-back { text-decoration: none; }
+/* AI answers use the same Markdown as the notes */
+.ai-ans ul:has(> li > input[type=checkbox]) { padding-left: .2em; }
+.ai-ans li:has(> input[type=checkbox]) { list-style: none; }
+.ai-ans li > input[type=checkbox] { margin: 0 .45em 0 0; vertical-align: -1px; accent-color: var(--accent); }
+.ai-ans table { border-collapse: collapse; margin: .4em 0; } .ai-ans th, .ai-ans td { border: 1px solid var(--border); padding: 3px 8px; }
+.ai-ans img { max-width: 100%; }
+/* pictures in the notes tree and their preview */
+.timg svg.i { color: var(--accent); opacity: .85; }
+.timg .nm { color: var(--text-dim); }
+.img-prev { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.img-prev-pic { max-width: 100%; max-height: 62vh; object-fit: contain; border-radius: 6px; background: repeating-conic-gradient(var(--bg-2) 0 25%, var(--bg) 0 50%) 0 0 / 16px 16px; }

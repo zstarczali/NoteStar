@@ -1,11 +1,13 @@
 NoteStar Installation Guide
 ===========================
 
-Version 0.1.0
+Version 0.2.0
 -------------
-First version: plain text / Markdown notes kept in two-way sync with
-any folder, OneDrive, Dropbox or WebDAV, with optional AI help.
-See whatsnew.txt for the release history.
+Full Markdown with a formatting toolbar and a cheat sheet, and pictures:
+paste, drop or insert them, resize them in the preview, and find them in
+the notes tree. They are kept in an "attachments" folder next to the
+note and synced along with the notes. See whatsnew.txt for the release
+history.
 
 The main-window Donate button appears after 10 minutes of foreground
 use. The timer pauses while the window is unfocused or hidden and

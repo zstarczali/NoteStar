@@ -1,17 +1,27 @@
 NoteStar - What's new
 =====================
 
+0.2.0
+-----
+- Full Markdown (CommonMark + GitHub extensions: tables, task lists,
+  nested lists, strikethrough, autolinks, footnotes, ==highlight==,
+  heading links, safe inline HTML) in the preview and in AI answers.
+- Formatting toolbar with keyboard shortcuts (Ctrl+B, Ctrl+I, Ctrl+K,
+  Ctrl+1..3, Ctrl+Shift+7/8/9 ...) and a Markdown cheat sheet.
+- Images: insert from a file, paste (Ctrl+V) or drop into the editor.
+  They are saved in an "attachments" folder next to the note and synced
+  along with the notes. Set the size with ![text|300](...) or
+  ![text](... =300x), or click the picture in the preview.
+- Pictures show up in the notes tree: click to view, drag into the
+  editor or insert them from the context menu.
+- Closing a tab asks first (x button, middle click, Ctrl+W).
+- Fix: in English the notes tree header and the editor hint were still
+  in Hungarian.
+
 0.1.0
 -----
 - First version: plain text / Markdown notes in a folder, editor with
   live preview, notes tree, full-text search.
-- Full Markdown (CommonMark + GitHub extensions: tables, task lists,
-  nested lists, strikethrough, autolinks, footnotes, ==highlight==,
-  heading links, safe inline HTML) with a formatting toolbar, keyboard
-  shortcuts and a Markdown cheat sheet.
-- Images: insert from a file, paste (Ctrl+V) or drop into the editor.
-  They are saved in an "attachments" folder next to the note and synced
-  along with the notes.
 - Two-way sync with any folder (OneDrive / Dropbox / Google Drive /
   iCloud desktop folders are detected), OneDrive (own App ID),
   Dropbox (own App key) and WebDAV. Conflict copies instead of lost

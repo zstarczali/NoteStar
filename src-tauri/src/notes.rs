@@ -59,6 +59,9 @@ pub struct Entry {
     pub size: u64,
     /// Modification time, ms since 1970
     pub mtime: i64,
+    /// A picture (attachment), not a note
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub image: bool,
 }
 
 /// Every folder and note under `root` (hidden ones skipped).
@@ -88,10 +91,10 @@ fn walk(dir: &Path, prefix: &str, exts: &[String], out: &mut Vec<Entry>, depth: 
         let rel = if prefix.is_empty() { name.clone() } else { format!("{prefix}/{name}") };
         let Ok(m) = e.metadata() else { continue };
         if ft.is_dir() {
-            out.push(Entry { rel: rel.clone(), dir: true, size: 0, mtime: mtime_ms(&m) });
+            out.push(Entry { rel: rel.clone(), dir: true, size: 0, mtime: mtime_ms(&m), image: false });
             walk(&e.path(), &rel, exts, out, depth + 1);
         } else if is_note(&name, exts) {
-            out.push(Entry { rel, dir: false, size: m.len(), mtime: mtime_ms(&m) });
+            out.push(Entry { rel, dir: false, size: m.len(), mtime: mtime_ms(&m), image: image_mime(&name).is_some() });
         }
     }
 }
@@ -320,7 +323,7 @@ pub fn search(root: &Path, exts: &[String], query: &str, max: usize) -> Result<V
     }
     let mut out = vec![];
     for e in list(root, exts)? {
-        if e.dir || e.size > 8 * 1024 * 1024 {
+        if e.dir || e.image || e.size > 8 * 1024 * 1024 {
             continue;
         }
         let Ok(buf) = std::fs::read(root.join(&e.rel)) else { continue };

@@ -122,7 +122,7 @@ export function createSidebar(ctx) {
     const q = query.toLowerCase();
     const rows = [];
     const visible = (e) => !q || e.rel.toLowerCase().includes(q);
-    const countNotes = (dir) => (kids.get(dir) || []).reduce((n, e) => n + (e.dir ? countNotes(e.rel) : 1), 0);
+    const countNotes = (dir) => (kids.get(dir) || []).reduce((n, e) => n + (e.dir ? countNotes(e.rel) : e.image ? 0 : 1), 0);
     const walk = (dir, lvl) => {
       for (const e of sorted(kids.get(dir) || [])) {
         if (e.dir) {
@@ -146,6 +146,28 @@ export function createSidebar(ctx) {
           dropOn(row, e.rel);
           rows.push(row);
           if (open) walk(e.rel, lvl + 1);
+        } else if (visible(e) && e.image) {
+          // a picture (attachment): preview on click, insert into the open note
+          const name = basename(e.rel);
+          rows.push(h('div.trow.tnote.timg', {
+            style: { '--lvl': lvl }, title: `${e.rel}\n${fmtSize(e.size)} · ${t('Módosítva: {0}', relTime(e.mtime / 1000))}`, draggable: 'true',
+            dataset: { rel: e.rel },
+            on: {
+              click: () => imagePreview(ctx, e),
+              dragstart: (ev) => { dragRel = e.rel; ev.dataTransfer.setData('text/plain', e.rel); ev.dataTransfer.setData('application/x-notestar-image', e.rel); },
+              contextmenu: (ev) => contextMenu(ev, [
+                { label: t('Megtekintés'), icon: 'eye', action: () => imagePreview(ctx, e) },
+                { label: t('Beszúrás a jegyzetbe'), icon: 'fmtImage', disabled: !ctx.activeRel(), action: () => ctx.linkImage(e.rel) },
+                '-',
+                { label: t('Átnevezés…'), icon: 'rename', key: 'F2', action: () => ctx.renameEntry(e.rel, false) },
+                { label: t('Megnyitás külső programmal'), icon: 'open', action: () => ctx.openExternal(e.rel) },
+                { label: t('Megjelenítés a mappában'), icon: 'folderOpen', action: () => ctx.reveal(e.rel) },
+                { label: t('Útvonal másolása'), icon: 'copy', action: () => invoke('note_path', { rel: e.rel }).then((p) => navigator.clipboard.writeText(p)).then(() => toast(t('Vágólapra másolva'), 'ok', 1500)) },
+                '-',
+                { label: t('Törlés (lomtárba)'), icon: 'trash', danger: true, action: () => ctx.deleteEntry(e.rel, false) },
+              ]),
+            },
+          }, h('span.tsp'), icon('fmtImage'), h('span.nm', name), h('span.tm', fmtSize(e.size))));
         } else if (visible(e)) {
           const ext = extOf(e.rel);
           const conflict = !!conflictOriginal(e.rel);
@@ -214,6 +236,27 @@ function loadImage(rel) {
 }
 /** Images may have changed on disk (sync, other program). */
 export const forgetImages = () => imgCache.clear();
+
+const fmtSize = (n) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
+
+/** A picture of the notes folder in a dialog. */
+async function imagePreview(ctx, e) {
+  const img = h('img.img-prev-pic', { alt: basename(e.rel) });
+  const info = h('div.desc', `${e.rel} · ${fmtSize(e.size)}`);
+  img.addEventListener('load', () => { info.textContent = `${e.rel} · ${img.naturalWidth} × ${img.naturalHeight} px · ${fmtSize(e.size)}`; });
+  loadImage(e.rel).then((url) => { img.src = url; }, (err) => { info.textContent = String(err); });
+  const res = await modal({
+    title: basename(e.rel), wide: true,
+    body: h('div.img-prev', img, info),
+    buttons: [
+      { label: t('Megnyitás külső programmal'), value: 'ext' },
+      ctx.activeRel() ? { label: t('Beszúrás a jegyzetbe'), value: 'insert' } : null,
+      { label: t('Bezárás'), value: null, primary: true },
+    ].filter(Boolean),
+  });
+  if (res === 'ext') ctx.openExternal(e.rel);
+  if (res === 'insert') ctx.linkImage(e.rel);
+}
 
 /** Markdown cheat sheet: the source and what it looks like. */
 function mdHelp() {
@@ -425,6 +468,14 @@ export class NoteView {
     });
     this.ta.addEventListener('dragover', (e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
     this.ta.addEventListener('drop', (e) => {
+      // a picture dragged from the notes tree: link it where it was dropped
+      const treeImg = e.dataTransfer?.getData('application/x-notestar-image');
+      if (treeImg && !this.lossy) {
+        e.preventDefault();
+        this.ta.focus();
+        this.linkImage(treeImg);
+        return;
+      }
       const files = [...(e.dataTransfer?.files || [])].filter((f) => f.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp|avif|ico)$/i.test(f.name));
       if (!files.length || this.lossy) return;
       e.preventDefault();
@@ -712,6 +763,15 @@ export class NoteView {
     }
     if (links.length) this.insertBlock(links.join('\n'));
     this.ctx.refreshTree?.();
+  }
+
+  /** Links a picture of the notes folder at the caret. */
+  linkImage(rel) {
+    if (!this.ta || this.lossy) return;
+    if (this.mode === 'preview') this.setMode('split');
+    const base = basename(rel);
+    const alt = base.includes('.') ? base.slice(0, base.lastIndexOf('.')) : base;
+    this.insertBlock(`![${alt}](${relLink(this.rel, rel)})`);
   }
 
   /** Picks image files in a dialog. */
