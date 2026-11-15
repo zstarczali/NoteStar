@@ -2,6 +2,9 @@
 
 import { invoke, h, icon, toast, modal, contextMenu, debounce, esc, relTime, basename, uiGet, uiSet } from './util.js';
 import { t } from './i18n.js';
+import { mdRender, taskLines, resolveRel, relLink } from './markdown.js';
+
+export { mdRender };
 
 // ───────────────────────── names / paths ─────────────────────────
 
@@ -13,80 +16,6 @@ export const joinRel = (dir, name) => (dir ? `${dir}/${name}` : name);
 /** "Note (conflict 2026-11-15 1430).md" → the original "Note.md" path, else null. */
 const CONFLICT_RE = / \((?:ütközés|conflict) \d{4}-\d{2}-\d{2} \d{4}\)(?: \d+)?(?=\.[^.]*$|$)/;
 export const conflictOriginal = (rel) => (CONFLICT_RE.test(basename(rel)) ? joinRel(dirOf(rel), basename(rel).replace(CONFLICT_RE, '')) : null);
-
-// ───────────────────────── Markdown (notes subset) ─────────────────────────
-
-function inline(s) {
-  const codes = [];
-  let r = esc(s).replace(/`([^`]+)`/g, (m, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
-  r = r
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (m, txt, url) => `<a data-href="${url}" title="${url}">${txt}</a>`)
-    .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, (m, pre, url) => `${pre}<a data-href="${url}" title="${url}">${url}</a>`)
-    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
-    .replace(/__([^_]+)__/g, '<b>$1</b>')
-    .replace(/(^|[^*\w])\*([^*\s][^*]*?)\*(?!\w)/g, '$1<i>$2</i>')
-    .replace(/(^|[^_\w])_([^_\s][^_]*?)_(?!\w)/g, '$1<i>$2</i>')
-    .replace(/~~([^~]+)~~/g, '<s>$1</s>')
-    .replace(/==([^=]+)==/g, '<mark>$1</mark>');
-  return r.replace(/\u0000(\d+)\u0000/g, (m, i) => `<code>${codes[+i]}</code>`);
-}
-
-/** Markdown → HTML. Task boxes carry their source line (data-line) so they can be ticked. */
-export function mdRender(src) {
-  const lines = String(src).replace(/\r/g, '').split('\n');
-  let out = '';
-  let para = [];
-  let list = null; // 'ul' | 'ol'
-  let quote = [];
-  const flushPara = () => { if (para.length) { out += `<p>${para.map(inline).join('<br>')}</p>`; para = []; } };
-  const closeList = () => { if (list) { out += `</${list}>`; list = null; } };
-  const flushQuote = () => { if (quote.length) { out += `<blockquote>${mdRender(quote.join('\n'))}</blockquote>`; quote = []; } };
-  const flushAll = () => { flushPara(); closeList(); flushQuote(); };
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    let m;
-    // fenced code
-    if ((m = line.match(/^\s*(```|~~~)\s*([\w+-]*)/))) {
-      flushAll();
-      const fence = m[1];
-      const code = [];
-      while (++i < lines.length && !lines[i].trim().startsWith(fence)) code.push(lines[i]);
-      out += `<pre><code>${esc(code.join('\n'))}</code></pre>`;
-      continue;
-    }
-    if ((m = line.match(/^\s{0,3}>\s?(.*)$/))) { flushPara(); closeList(); quote.push(m[1]); continue; }
-    flushQuote();
-    if (!line.trim()) { flushPara(); closeList(); continue; }
-    if ((m = line.match(/^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/))) { flushAll(); out += `<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`; continue; }
-    if (/^\s{0,3}([-*_])(\s*\1){2,}\s*$/.test(line)) { flushAll(); out += '<hr>'; continue; }
-    // table: | a | b | followed by |---|---|
-    if (/^\s*\|.*\|\s*$/.test(line) && /^\s*\|?\s*:?-{2,}/.test(lines[i + 1] || '')) {
-      flushAll();
-      const cells = (l) => l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
-      out += '<table><thead><tr>' + cells(line).map((c) => `<th>${inline(c)}</th>`).join('') + '</tr></thead><tbody>';
-      i++;
-      while (i + 1 < lines.length && /^\s*\|.*\|\s*$/.test(lines[i + 1])) { i++; out += '<tr>' + cells(lines[i]).map((c) => `<td>${inline(c)}</td>`).join('') + '</tr>'; }
-      out += '</tbody></table>';
-      continue;
-    }
-    if ((m = line.match(/^(\s*)([-*+]|\d+[.)])\s+(.*)$/))) {
-      flushPara();
-      const kind = /\d/.test(m[2]) ? 'ol' : 'ul';
-      if (list !== kind) { closeList(); out += `<${kind}>`; list = kind; }
-      const ind = Math.min(6, Math.floor(m[1].replace(/\t/g, '    ').length / 2));
-      const task = m[3].match(/^\[([ xX])\]\s*(.*)$/);
-      if (task) {
-        const done = task[1] !== ' ';
-        out += `<li class="task${done ? ' done' : ''}" style="--ind:${ind}"><input type="checkbox" data-line="${i}"${done ? ' checked' : ''}>${inline(task[2])}</li>`;
-      } else out += `<li style="--ind:${ind}">${inline(m[3])}</li>`;
-      continue;
-    }
-    closeList();
-    para.push(line.trim());
-  }
-  flushAll();
-  return out;
-}
 
 /** Plain-text counts for the status bar. */
 export function textStats(s) {
@@ -118,13 +47,19 @@ export function createSidebar(ctx) {
     ctx.saveLater();
     draw();
   } } }, icon('sortIc'));
-  const head = h('div.side-head',
-    h('span.side-title', t('Jegyzetek')), h('span.grow'),
-    h('button.icon-btn', { title: t('Új jegyzet (Ctrl+N)'), on: { click: () => ctx.newNote(currentDir()) } }, icon('newNote')),
-    h('button.icon-btn', { title: t('Új mappa'), on: { click: () => ctx.newFolder(currentDir()) } }, icon('newFolder')),
-    sortBtn,
-    h('button.icon-btn', { title: t('Minden mappa összecsukása'), on: { click: () => { for (const e of entries) if (e.dir) closed.add(e.rel); saveClosed(); draw(); } } }, icon('collapse')),
-    h('button.icon-btn', { title: t('Frissítés'), on: { click: () => refresh() } }, icon('refresh')));
+  const head = h('div.side-head');
+  // texts depend on the UI language: redrawn on every refresh (the sidebar is built before the language is set)
+  const drawHead = () => {
+    search.placeholder = t('Keresés a jegyzetekben… (Ctrl+Shift+F)');
+    head.replaceChildren(
+      h('span.side-title', t('Jegyzetek')), h('span.grow'),
+      h('button.icon-btn', { title: t('Új jegyzet (Ctrl+N)'), on: { click: () => ctx.newNote(currentDir()) } }, icon('newNote')),
+      h('button.icon-btn', { title: t('Új mappa'), on: { click: () => ctx.newFolder(currentDir()) } }, icon('newFolder')),
+      sortBtn,
+      h('button.icon-btn', { title: t('Minden mappa összecsukása'), on: { click: () => { for (const e of entries) if (e.dir) closed.add(e.rel); saveClosed(); draw(); } } }, icon('collapse')),
+      h('button.icon-btn', { title: t('Frissítés'), on: { click: () => refresh() } }, icon('refresh')));
+  };
+  drawHead();
   el.replaceChildren(head, h('div.side-filter', search), body);
 
   /** Folder of the open note: new notes go next to it. */
@@ -245,6 +180,7 @@ export function createSidebar(ctx) {
   async function refresh() {
     try { entries = await invoke('list_notes'); }
     catch (e) { toast(String(e), 'err'); entries = []; }
+    drawHead();
     if (hits && query.length >= 2) runSearch();
     draw();
     return entries;
@@ -383,13 +319,14 @@ export class NoteView {
   // ── DOM ──
   build() {
     const s = this.ctx.settings();
-    this.ta = h('textarea.ed-text', { spellcheck: s.spellcheck ? 'true' : 'false', placeholder: t('Írj valamit… (Markdown: # cím, - lista, - [ ] teendő, **félkövér**)') });
+    this.ta = h('textarea.ed-text', { spellcheck: s.spellcheck ? 'true' : 'false' });
     this.preview = h('div.md-view');
     this.head = h('div.ed-head');
+    this.tools = h('div.ed-tools');
     this.banner = h('div.ed-banner');
     this.findBar = null;
     this.body = h('div.ed-body', h('div.ed-pane.ed-src', this.ta), h('div.ed-pane.ed-prev', this.preview));
-    this.root = h('div.ed', this.head, this.banner, this.body);
+    this.root = h('div.ed', this.head, this.tools, this.banner, this.body);
 
     this.ta.addEventListener('input', () => {
       this.text = this.ta.value;
@@ -431,6 +368,143 @@ export class NoteView {
     this.ta.classList.toggle('nowrap', s.editor_wrap === false);
     this.ta.spellcheck = !!s.spellcheck;
     this.root.style.setProperty('--ed-size', (s.editor_font_size || 14) + 'px');
+    // language may have changed: refresh the texts too
+    this.ta.placeholder = t('Írj valamit… (Markdown: # cím, - lista, - [ ] teendő, **félkövér**)');
+    this.drawTools();
+    if (!this.error) this.drawHead();
+  }
+
+  /** Formatting toolbar (Markdown is written into the text, the preview shows the result). */
+  drawTools() {
+    const b = (ic, title, fn, label) => h('button.icon-btn.fmt', {
+      type: 'button', title,
+      // keep the selection in the textarea
+      on: { mousedown: (e) => e.preventDefault(), click: () => { if (!this.lossy) fn(); } },
+    }, ic ? icon(ic) : h('span.fmt-txt', label));
+    const sep = () => h('span.fmt-sep');
+    this.tools.replaceChildren(
+      b('fmtBold', t('Félkövér (Ctrl+B)'), () => this.fmtInline('**')),
+      b('fmtItalic', t('Dőlt (Ctrl+I)'), () => this.fmtInline('*')),
+      b('fmtStrike', t('Áthúzott (Ctrl+Shift+X)'), () => this.fmtInline('~~')),
+      b('fmtMark', t('Kiemelés (Ctrl+Shift+H)'), () => this.fmtInline('==')),
+      b('fmtCode', t('Kód (Ctrl+Shift+K)'), () => this.fmtCode()),
+      sep(),
+      b(null, t('Címsor 1 (Ctrl+1)'), () => this.fmtLines('h1'), 'H1'),
+      b(null, t('Címsor 2 (Ctrl+2)'), () => this.fmtLines('h2'), 'H2'),
+      b(null, t('Címsor 3 (Ctrl+3)'), () => this.fmtLines('h3'), 'H3'),
+      sep(),
+      b('fmtUl', t('Felsorolás (Ctrl+Shift+8)'), () => this.fmtLines('ul')),
+      b('fmtOl', t('Számozott lista (Ctrl+Shift+7)'), () => this.fmtLines('ol')),
+      b('checkSq', t('Teendő (Ctrl+Shift+9)'), () => this.fmtLines('task')),
+      b('fmtQuote', t('Idézet'), () => this.fmtLines('quote')),
+      sep(),
+      b('link', t('Hivatkozás (Ctrl+K)'), () => this.fmtLink()),
+      b('fmtHr', t('Elválasztó vonal'), () => this.fmtHr()));
+    this.tools.classList.toggle('disabled', !!this.lossy);
+  }
+
+  /** Bold / italic / ...: wraps the selection, or removes the marks when they are already there. */
+  fmtInline(mark) {
+    const ta = this.ta;
+    const v = ta.value;
+    let a = ta.selectionStart, b = ta.selectionEnd;
+    // "**word **" would not render: keep the spaces outside
+    while (a < b && /\s/.test(v[a])) a++;
+    while (b > a && /\s/.test(v[b - 1])) b--;
+    const L = mark.length;
+    const sel = v.slice(a, b);
+    // italic '*' must not eat half of a bold '**'
+    const single = (i) => mark !== '*' || v.slice(i - 3, i) === '***' || (v[i - 2] !== '*');
+    const singleR = (i) => mark !== '*' || v.slice(i, i + 3) === '***' || (v[i + 1] !== '*');
+    if (v.slice(a - L, a) === mark && v.slice(b, b + L) === mark && single(a) && singleR(b)) {
+      ta.setSelectionRange(a - L, b + L);
+      this.insert(sel);
+      ta.setSelectionRange(a - L, b - L);
+    } else if (sel.length > 2 * L && sel.startsWith(mark) && sel.endsWith(mark)) {
+      const inner = sel.slice(L, -L);
+      ta.setSelectionRange(a, b);
+      this.insert(inner);
+      ta.setSelectionRange(a, a + inner.length);
+    } else {
+      ta.setSelectionRange(a, b);
+      this.insert(mark + sel + mark);
+      ta.setSelectionRange(a + L, a + L + sel.length);
+    }
+  }
+
+  fmtCode() {
+    const { selectionStart: a, selectionEnd: b, value } = this.ta;
+    if (!value.slice(a, b).includes('\n')) { this.fmtInline('`'); return; }
+    // several lines: fenced block on whole lines
+    const s = value.lastIndexOf('\n', a - 1) + 1;
+    let e = value.indexOf('\n', b - (value[b - 1] === '\n' ? 1 : 0));
+    if (e < 0) e = value.length;
+    const body = value.slice(s, e);
+    this.ta.setSelectionRange(s, e);
+    this.insert('```\n' + body + '\n```');
+    this.ta.setSelectionRange(s + 4, s + 4 + body.length);
+  }
+
+  fmtLink() {
+    const { selectionStart: a, selectionEnd: b, value } = this.ta;
+    const sel = value.slice(a, b).trim();
+    if (/^https?:\/\/\S+$/.test(sel)) {
+      this.insert(`[](${sel})`);
+      this.ta.setSelectionRange(a + 1, a + 1);
+    } else {
+      const url = 'https://';
+      this.insert(`[${sel}](${url})`);
+      const at = a + sel.length + 3;
+      if (sel) this.ta.setSelectionRange(at, at + url.length);
+      else this.ta.setSelectionRange(a + 1, a + 1);
+    }
+  }
+
+  fmtHr() {
+    const { selectionEnd: b, value } = this.ta;
+    let e = value.indexOf('\n', b);
+    if (e < 0) e = value.length;
+    this.ta.setSelectionRange(e, e);
+    const before = value.slice(0, e);
+    this.insert((before && !before.endsWith('\n\n') ? (before.endsWith('\n') ? '\n' : '\n\n') : '') + '---\n\n');
+  }
+
+  /** Heading / list / task / quote on every line of the selection; again = off. */
+  fmtLines(kind) {
+    const { selectionStart: a, selectionEnd: b, value } = this.ta;
+    const s = value.lastIndexOf('\n', a - 1) + 1;
+    let e = value.indexOf('\n', b > a && value[b - 1] === '\n' ? b - 1 : b);
+    if (e < 0) e = value.length;
+    const lines = value.slice(s, e).split('\n');
+    const PRE = /^(\s*)(#{1,6}\s+|>\s?|[-*+]\s+\[[ xX]\]\s+|[-*+]\s+|\d+[.)]\s+)?/;
+    const kindOf = (l) => {
+      const p = (l.match(PRE)[2] || '').trim();
+      if (!p) return '';
+      if (p.startsWith('#')) return 'h' + p.length;
+      if (p.startsWith('>')) return 'quote';
+      if (/\[[ xX]\]$/.test(p)) return 'task';
+      return /^\d/.test(p) ? 'ol' : 'ul';
+    };
+    const filled = lines.filter((l) => l.trim());
+    const off = filled.length > 0 && filled.every((l) => kindOf(l) === kind);
+    let n = 0;
+    const out = lines.map((l) => {
+      if (!l.trim() && lines.length > 1) return l;
+      const m = l.match(PRE);
+      const ind = kind.startsWith('h') ? '' : m[1];
+      const rest = l.slice(m[0].length);
+      if (off) return m[1] + rest;
+      const pre = { h1: '# ', h2: '## ', h3: '### ', quote: '> ', ul: '- ', task: '- [ ] ', ol: `${++n}. ` }[kind];
+      return ind + pre + rest;
+    });
+    const text = out.join('\n');
+    this.ta.setSelectionRange(s, e);
+    this.insert(text);
+    if (a === b && lines.length === 1) {
+      // keep the caret on the same character
+      const p = Math.max(s, a + (text.length - (e - s)));
+      this.ta.setSelectionRange(p, p);
+    } else this.ta.setSelectionRange(s, s + text.length);
   }
 
   drawHead() {
@@ -454,6 +528,7 @@ export class NoteView {
 
   applyMode() {
     this.body.className = 'ed-body mode-' + this.mode;
+    this.tools.classList.toggle('none', this.mode === 'preview');
     if (this.mode !== 'edit') this.renderPreview();
     this.drawHead();
   }
@@ -485,13 +560,6 @@ export class NoteView {
       : document.execCommand('insertText', false, text);
     if (!ok) this.ta.setRangeText(text, this.ta.selectionStart, this.ta.selectionEnd, 'end');
     this.ta.dispatchEvent(new Event('input'));
-  }
-
-  wrap(mark) {
-    const { selectionStart: a, selectionEnd: b, value } = this.ta;
-    const sel = value.slice(a, b);
-    this.insert(mark + sel + mark);
-    if (!sel) this.ta.setSelectionRange(a + mark.length, a + mark.length);
   }
 
   onKey(e) {
@@ -526,10 +594,14 @@ export class NoteView {
       this.insert(`\n${m[1]}${marker} ${m[5] ? '[ ] ' : ''}`);
       return;
     }
-    if (mod && !e.altKey && !e.shiftKey) {
-      const k = e.key.toLowerCase();
-      if (k === 'b') { e.preventDefault(); this.wrap('**'); }
-      else if (k === 'i') { e.preventDefault(); this.wrap('*'); }
+    if (mod && !e.altKey && !this.lossy) {
+      // e.code: layout independent (Hungarian keyboard: Shift+7 is not '7')
+      const act = e.shiftKey
+        ? { KeyX: () => this.fmtInline('~~'), KeyH: () => this.fmtInline('=='), KeyK: () => this.fmtCode(),
+          Digit8: () => this.fmtLines('ul'), Digit7: () => this.fmtLines('ol'), Digit9: () => this.fmtLines('task') }[e.code]
+        : { KeyB: () => this.fmtInline('**'), KeyI: () => this.fmtInline('*'), KeyK: () => this.fmtLink(),
+          Digit1: () => this.fmtLines('h1'), Digit2: () => this.fmtLines('h2'), Digit3: () => this.fmtLines('h3') }[e.code];
+      if (act) { e.preventDefault(); e.stopPropagation(); act(); }
     }
   }
 

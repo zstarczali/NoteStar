@@ -147,6 +147,16 @@ Object.assign(P, {
   replace: '<path d="M4 7h12"/><path d="m13 3 4 4-4 4"/><path d="M20 17H8"/><path d="m11 13-4 4 4 4"/>',
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
   checkSq: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="m8 12 3 3 5-6"/>',
+  // formatting toolbar
+  fmtBold: '<path d="M7 4h6a4 4 0 0 1 0 8H7z" stroke-width="2.6"/><path d="M7 12h7.5a4 4 0 0 1 0 8H7z" stroke-width="2.6"/>',
+  fmtItalic: '<path d="M10 4h8M6 20h8M15 4 9 20"/>',
+  fmtStrike: '<path d="M4 12h16"/><path d="M17 6.5A4.5 3.5 0 0 0 12 4c-3 0-5 1.5-5 3.5 0 1.6 1.2 2.8 3.5 3.5"/><path d="M8 17.5A5 3.5 0 0 0 12 20c3 0 5-1.5 5-3.6 0-1-.4-1.8-1.2-2.4"/>',
+  fmtMark: '<path d="m9 15 7.5-10.5a2 2 0 0 1 3 2.1L12 17z"/><path d="m9 15-2 3 3 1 2-2"/><path d="M3 21h9"/>',
+  fmtCode: '<path d="m8 7-5 5 5 5"/><path d="m16 7 5 5-5 5"/><path d="m14 4-4 16"/>',
+  fmtUl: '<path d="M9 6h12M9 12h12M9 18h12"/><circle cx="4.5" cy="6" r="1.2"/><circle cx="4.5" cy="12" r="1.2"/><circle cx="4.5" cy="18" r="1.2"/>',
+  fmtOl: '<path d="M10 6h11M10 12h11M10 18h11"/><path d="M4 4.5 5.5 4v4"/><path d="M3.8 11a1.4 1.4 0 0 1 2.6.6c0 .9-2.6 1.9-2.6 2.9h2.8"/><path d="M3.8 16.6h2.4l-1.3 1.4a1.3 1.3 0 1 1-1.2 1.7"/>',
+  fmtQuote: '<path d="M4 6v12"/><path d="M9 8h11M9 12h11M9 16h7"/>',
+  fmtHr: '<path d="M3 12h18"/><path d="M7 6h10M7 18h10" opacity=".45"/>',
 });
 Object.assign(AI_P, {
   sync: '<path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 3v5h5"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 21v-5h-5"/><circle cx="12" cy="12" r="1.6"/>',

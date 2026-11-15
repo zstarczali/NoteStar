@@ -181,6 +181,72 @@ pub fn unique(root: &Path, dir: &str, stem: &str, ext: &str) -> Result<String, S
     Err(tr("Nem található szabad fájlnév.", "No free file name found."))
 }
 
+// ───────────────────────── images ─────────────────────────
+
+/// Image files a note can show; they are synced along with the notes.
+pub const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif", "ico"];
+/// Images are pasted / dropped into this folder next to the note.
+pub const ATTACH_DIR: &str = "attachments";
+const MAX_IMAGE: u64 = 50 * 1024 * 1024;
+
+fn image_mime(name: &str) -> Option<&'static str> {
+    let ext = name.rsplit_once('.')?.1.to_ascii_lowercase();
+    Some(match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "bmp" => "image/bmp",
+        "avif" => "image/avif",
+        "ico" => "image/x-icon",
+        _ => return None,
+    })
+}
+
+/// Stores an image for the note `note_rel` in `<its folder>/attachments/` under a
+/// free name; returns the new file's path relative to the notes folder.
+pub fn save_image(root: &Path, note_rel: &str, name: &str, data: &[u8]) -> Result<String, String> {
+    if data.len() as u64 > MAX_IMAGE {
+        return Err(tr("A kép túl nagy (legfeljebb 50 MB).", "The image is too large (50 MB at most)."));
+    }
+    let name = clean_name(name.rsplit(['/', '\\']).next().unwrap_or(name));
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((s, e)) if !s.is_empty() && image_mime(&name).is_some() => (s.to_string(), format!(".{}", e.to_ascii_lowercase())),
+        _ => return Err(tr("Ez nem támogatott képformátum.", "This is not a supported image format.")),
+    };
+    let note_dir = note_rel.replace('\\', "/").rsplit_once('/').map(|(d, _)| d.to_string()).unwrap_or_default();
+    let dir = if note_dir.is_empty() { ATTACH_DIR.to_string() } else { format!("{note_dir}/{ATTACH_DIR}") };
+    std::fs::create_dir_all(safe_join(root, &dir)?).map_err(|e| e.to_string())?;
+    let rel = unique(root, &dir, &stem, &ext)?;
+    write_atomic(&safe_join(root, &rel)?, data)?;
+    Ok(rel)
+}
+
+/// Copies an image file from anywhere (picked in a dialog) next to the note.
+pub fn import_image(root: &Path, note_rel: &str, path: &Path) -> Result<String, String> {
+    let m = std::fs::metadata(path).map_err(|e| e.to_string())?;
+    if m.len() > MAX_IMAGE {
+        return Err(tr("A kép túl nagy (legfeljebb 50 MB).", "The image is too large (50 MB at most)."));
+    }
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let data = std::fs::read(path).map_err(|e| e.to_string())?;
+    save_image(root, note_rel, &name, &data)
+}
+
+/// An image inside the notes folder as a `data:` URL for the preview.
+pub fn image_data_url(root: &Path, rel: &str) -> Result<String, String> {
+    use base64::Engine;
+    let mime = image_mime(rel).ok_or_else(|| tr("Ez nem támogatott képformátum.", "This is not a supported image format."))?;
+    let p = safe_join(root, rel)?;
+    let m = std::fs::metadata(&p).map_err(|e| e.to_string())?;
+    if m.len() > MAX_IMAGE {
+        return Err(tr("A kép túl nagy (legfeljebb 50 MB).", "The image is too large (50 MB at most)."));
+    }
+    let data = std::fs::read(&p).map_err(|e| e.to_string())?;
+    Ok(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(data)))
+}
+
 /// Creates an empty note (or one starting with `# title`) and returns its path.
 pub fn create(root: &Path, dir: &str, title: &str, ext: &str) -> Result<String, String> {
     let stem = clean_name(title);
@@ -302,6 +368,22 @@ fn snippet(line: &str, low: &str, q: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn images_go_next_to_the_note() {
+        let root = std::env::temp_dir().join(format!("notestar-img-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("Work")).unwrap();
+        let a = save_image(&root, "Work/plan.md", "shot.PNG", b"\x89PNG").unwrap();
+        assert_eq!(a, "Work/attachments/shot.png");
+        let b = save_image(&root, "Work/plan.md", "C:\\x\\shot.png", b"\x89PNG").unwrap();
+        assert_eq!(b, "Work/attachments/shot 2.png");
+        assert_eq!(save_image(&root, "top.md", "a.gif", b"GIF").unwrap(), "attachments/a.gif");
+        assert!(save_image(&root, "top.md", "evil.exe", b"MZ").is_err());
+        assert!(image_data_url(&root, &a).unwrap().starts_with("data:image/png;base64,"));
+        assert!(image_data_url(&root, "../x.png").is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn safe_join_refuses_escapes() {
