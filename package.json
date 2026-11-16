@@ -2,6 +2,7 @@
   "name": "notestar",
   "version": "0.3.2",
   "private": true,
+  "license": "MIT",
   "description": "NoteStar - plain notes kept in sync with OneDrive, Dropbox, WebDAV or any synced folder (Tauri 2 + Rust)",
   "scripts": {
     "dev": "tauri dev",

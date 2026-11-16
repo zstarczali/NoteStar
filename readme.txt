@@ -96,3 +96,6 @@ of the OneDrive, Dropbox, Google Drive or iCloud desktop client;
 NoteStar detects these. OneDrive needs your own Azure app registration
 (App ID), Dropbox your own app (App key); the dialog explains the
 steps. WebDAV works with Nextcloud, ownCloud, Synology and others.
+
+License: MIT. Copyright (c) 2026 Zsolt Tarczali. See LICENSE.
+Third-party components retain their own licenses.
