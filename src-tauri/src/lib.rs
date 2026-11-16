@@ -8,6 +8,7 @@ mod remote;
 mod settings;
 mod sync;
 mod update;
+mod usage;
 mod webdav;
 
 use commands::AppState;
@@ -56,6 +57,7 @@ pub fn run() {
         )
         .setup(|app| {
             let dir = app.path().app_config_dir().unwrap_or_else(|_| std::env::temp_dir().join("NoteStar"));
+            usage::init(app.handle().clone(), dir.clone());
             let docs = app
                 .path()
                 .document_dir()
@@ -91,6 +93,8 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            usage::ai_usage,
+            usage::ai_usage_reset,
             commands::get_settings,
             commands::save_settings,
             commands::set_ui_language,
@@ -104,6 +108,7 @@ pub fn run() {
             commands::rename_entry,
             commands::delete_entry,
             commands::search_notes,
+            commands::import_note,
             commands::note_path,
             commands::save_image,
             commands::import_image,

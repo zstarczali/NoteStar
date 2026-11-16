@@ -401,4 +401,13 @@ export const EN = {
   'Megtekintés': 'View',
   'Beszúrás a jegyzetbe': 'Insert into the note',
   'Előbb nyiss meg egy jegyzetet.': 'Open a note first.',
+  'Kis- és nagybetű megkülönböztetése': 'Match case',
+  'Csak egész szavak': 'Whole words only',
+  '{0} találat · {1} jegyzet': '{0} matches · {1} notes',
+  '+{0} további sor': '+{0} more lines',
+  '…a többi a jegyzetben (Ctrl+F)': '…the rest in the note (Ctrl+F)',
+  'Keresés minden jegyzetben (Ctrl+Enter)': 'Search all notes (Ctrl+Enter)',
+  'Bezárás (Esc)': 'Close (Esc)',
+  '{0} jegyzet importálva': '{0} notes imported',
+  'Nem importálva ({0}):': 'Not imported ({0}):',
 };

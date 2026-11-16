@@ -307,17 +307,64 @@ pub fn delete(root: &Path, rel: &str) -> Result<(), String> {
 }
 
 #[derive(Serialize)]
+pub struct Match {
+    /// 1-based line number
+    pub line: usize,
+    pub snippet: String,
+}
+
+#[derive(Serialize)]
 pub struct Hit {
     pub rel: String,
     /// 1-based line of the first match (0 = only the name matched)
     pub line: usize,
     pub snippet: String,
     pub count: usize,
+    /// the first matching lines (at most MAX_LINES_PER_NOTE)
+    pub matches: Vec<Match>,
+    pub name_hit: bool,
 }
 
-/// Full-text search (case-insensitive) in every note; name matches count too.
-pub fn search(root: &Path, exts: &[String], query: &str, max: usize) -> Result<Vec<Hit>, String> {
-    let q = query.trim().to_lowercase();
+const MAX_LINES_PER_NOTE: usize = 30;
+
+/// How to match: case-sensitive and/or whole words only.
+#[derive(Clone, Copy, Default)]
+pub struct SearchOpts {
+    pub case: bool,
+    pub word: bool,
+}
+
+fn is_word_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+/// Char indexes of every match of `q` in `line` (`q` already lower-cased when not case-sensitive).
+fn find_all(line: &str, q: &str, o: SearchOpts) -> Vec<usize> {
+    let hay: Vec<char> = if o.case { line.chars().collect() } else { line.to_lowercase().chars().collect() };
+    let needle: Vec<char> = q.chars().collect();
+    let mut out = vec![];
+    if needle.is_empty() || needle.len() > hay.len() {
+        return out;
+    }
+    let mut i = 0;
+    while i + needle.len() <= hay.len() {
+        if hay[i..i + needle.len()] == needle[..] {
+            let ok = !o.word
+                || ((i == 0 || !is_word_char(hay[i - 1])) && (i + needle.len() == hay.len() || !is_word_char(hay[i + needle.len()])));
+            if ok {
+                out.push(i);
+                i += needle.len();
+                continue;
+            }
+        }
+        i += 1;
+    }
+    out
+}
+
+/// Full-text search in every note; name matches count too.
+pub fn search(root: &Path, exts: &[String], query: &str, o: SearchOpts, max: usize) -> Result<Vec<Hit>, String> {
+    let q = if o.case { query.trim().to_string() } else { query.trim().to_lowercase() };
     if q.is_empty() {
         return Ok(vec![]);
     }
@@ -328,34 +375,34 @@ pub fn search(root: &Path, exts: &[String], query: &str, max: usize) -> Result<V
         }
         let Ok(buf) = std::fs::read(root.join(&e.rel)) else { continue };
         let (text, _) = decode(&buf);
-        let mut first: Option<(usize, String)> = None;
+        let mut matches = vec![];
         let mut count = 0;
         for (i, line) in text.lines().enumerate() {
-            let low = line.to_lowercase();
-            let n = low.matches(&q).count();
-            if n > 0 {
-                count += n;
-                if first.is_none() {
-                    first = Some((i + 1, snippet(line, &low, &q)));
+            let at = find_all(line, &q, o);
+            if !at.is_empty() {
+                count += at.len();
+                if matches.len() < MAX_LINES_PER_NOTE {
+                    matches.push(Match { line: i + 1, snippet: snippet(line, at[0]) });
                 }
             }
         }
-        let name_hit = e.rel.to_lowercase().contains(&q);
+        let name = e.rel.rsplit('/').next().unwrap_or(&e.rel);
+        let name_hit = !find_all(name, &q, o).is_empty();
         if count > 0 || name_hit {
-            let (line, snippet) = first.unwrap_or((0, String::new()));
-            out.push(Hit { rel: e.rel, line, snippet, count });
+            let (line, snip) = matches.first().map(|m| (m.line, m.snippet.clone())).unwrap_or((0, String::new()));
+            out.push(Hit { rel: e.rel, line, snippet: snip, count, matches, name_hit });
         }
     }
-    out.sort_by(|a, b| b.count.cmp(&a.count).then(a.rel.cmp(&b.rel)));
+    // name matches first, then the most matches
+    out.sort_by(|a, b| b.name_hit.cmp(&a.name_hit).then(b.count.cmp(&a.count)).then(a.rel.cmp(&b.rel)));
     out.truncate(max);
     Ok(out)
 }
 
-/// About 120 characters of `line` around the first match.
-fn snippet(line: &str, low: &str, q: &str) -> String {
+/// About 120 characters of `line` around the match at char index `at`.
+fn snippet(line: &str, at: usize) -> String {
     let chars: Vec<char> = line.chars().collect();
-    // the char index of the match (lower-casing may change byte lengths)
-    let at = low.find(q).map(|b| low[..b].chars().count()).unwrap_or(0).min(chars.len());
+    let at = at.min(chars.len());
     let start = at.saturating_sub(40);
     let end = (at + 80).min(chars.len());
     let mut s: String = chars[start..end].iter().collect();
@@ -366,6 +413,33 @@ fn snippet(line: &str, low: &str, q: &str) -> String {
         s.push('…');
     }
     s.trim().to_string()
+}
+
+// ───────────────────────── import ─────────────────────────
+
+const MAX_IMPORT: usize = 16 * 1024 * 1024;
+
+/// A note file dropped from outside: stored in `dir` under a free name. Returns its path.
+/// The bytes are kept as they are (a non-UTF-8 file opens read-only, like any other).
+pub fn import_note(root: &Path, dir: &str, name: &str, data: &[u8], exts: &[String]) -> Result<String, String> {
+    if data.len() > MAX_IMPORT {
+        return Err(tr("A fájl túl nagy (legfeljebb 16 MB).", "The file is too large (16 MB at most)."));
+    }
+    let name = clean_name(name.rsplit(['/', '\\']).next().unwrap_or(name));
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((s, e)) if !s.is_empty() => (s.to_string(), e.to_lowercase()),
+        _ => (name.clone(), "md".to_string()),
+    };
+    if stem.is_empty() || !is_note(&format!("{stem}.{ext}"), exts) {
+        return Err(tr("Ez a fájltípus nem jegyzet (lásd Beállítások → Kiterjesztések).", "This file type is not a note (see Settings → Extensions)."));
+    }
+    let dir = dir.trim_matches('/');
+    if !dir.is_empty() {
+        std::fs::create_dir_all(safe_join(root, dir)?).map_err(|e| e.to_string())?;
+    }
+    let rel = unique(root, dir, &stem, &format!(".{ext}"))?;
+    write_atomic(&safe_join(root, &rel)?, data)?;
+    Ok(rel)
 }
 
 #[cfg(test)]
@@ -417,7 +491,30 @@ mod tests {
     #[test]
     fn snippet_handles_unicode() {
         let line = "Árvíztűrő tükörfúrógép és még sok más szöveg";
-        let low = line.to_lowercase();
-        assert!(snippet(line, &low, "tükör").contains("tükörfúrógép"));
+        let at = find_all(line, "tükör", SearchOpts::default());
+        assert_eq!(at, vec![10]);
+        assert!(snippet(line, at[0]).contains("tükörfúrógép"));
+    }
+
+    #[test]
+    fn search_options() {
+        let o = SearchOpts::default();
+        assert_eq!(find_all("Alma alma almafa", "alma", o).len(), 3);
+        assert_eq!(find_all("Alma alma almafa", "alma", SearchOpts { case: true, word: false }).len(), 2);
+        assert_eq!(find_all("Alma alma almafa", "alma", SearchOpts { case: false, word: true }).len(), 2);
+        assert_eq!(find_all("aaaa", "aa", o).len(), 2);
+    }
+
+    #[test]
+    fn import_keeps_name_and_ext() {
+        let root = std::env::temp_dir().join(format!("notestar-imp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let exts = vec!["md".to_string(), "txt".to_string()];
+        assert_eq!(import_note(&root, "", "C:\\x\\Readme.md", b"# hi", &exts).unwrap(), "Readme.md");
+        assert_eq!(import_note(&root, "", "Readme.md", b"# hi", &exts).unwrap(), "Readme 2.md");
+        assert_eq!(import_note(&root, "Sub", "a.TXT", b"x", &exts).unwrap(), "Sub/a.txt");
+        assert!(import_note(&root, "", "x.exe", b"x", &exts).is_err());
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

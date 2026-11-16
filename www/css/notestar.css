@@ -164,6 +164,36 @@
 .ed-find .inp { width: 220px; padding: 3px 7px; }
 .ed-find .cnt { font-size: 11.5px; color: var(--text-dim); min-width: 38px; text-align: center; font-variant-numeric: tabular-nums; }
 .ed-find.none .inp { border-color: var(--danger); }
+.ed-find .find-opt { min-width: 24px; height: 22px; padding: 0 4px; font-size: 11.5px; font-weight: 700; color: var(--text-dim); border: 1px solid transparent; border-radius: 4px; }
+.ed-find .find-opt.on, .side-filter .find-opt.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+
+/* find highlights: a layer behind the transparent textarea with the same text */
+.ed-src { position: relative; }
+.ed-src .ed-text { position: relative; z-index: 1; }
+.ed-hl { position: absolute; left: 0; top: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+.ed-hl.none { display: none; }
+.ed-hl-in { box-sizing: border-box; color: transparent; will-change: transform; }
+.ed-hl mark, .md-view mark.find-hit { background: color-mix(in srgb, var(--warn) 38%, transparent); color: transparent; border-radius: 2px; }
+.md-view mark.find-hit { color: inherit; }
+.ed-hl mark.cur, .md-view mark.find-hit.cur { background: color-mix(in srgb, var(--accent) 55%, transparent); box-shadow: 0 0 0 1px var(--accent); }
+
+/* full-text search results */
+.side-filter { display: flex; align-items: center; gap: 3px; }
+.side-filter .side-search { flex: 1; min-width: 0; }
+.side-filter .find-opt { flex: none; min-width: 26px; height: 26px; padding: 0 4px; font-size: 11.5px; font-weight: 700; color: var(--text-dim); border: 1px solid transparent; border-radius: 5px; }
+.hit-sum { font-size: 11px; color: var(--text-faint); padding: 2px 8px 6px; }
+.hit-name, .hit-line { cursor: pointer; border-radius: 4px; outline: none; }
+.hit-name:focus-visible, .hit-line:focus-visible { box-shadow: 0 0 0 1px var(--accent); }
+.hit-line { display: flex; gap: 6px; padding: 2px 4px 2px 20px; }
+.hit-line:hover { background: var(--bg-3); }
+.hit-line .hit-snip { padding: 0; flex: 1; min-width: 0; }
+.hit-ln { font-size: 10.5px; color: var(--text-faint); min-width: 22px; text-align: right; padding-top: 1px; font-variant-numeric: tabular-nums; flex: none; }
+.hit-name mark { background: color-mix(in srgb, var(--warn) 40%, transparent); color: inherit; border-radius: 2px; }
+.hit-more { font-size: 11px; color: var(--accent); padding: 2px 0 2px 48px; cursor: pointer; }
+.hit-more.dim { color: var(--text-faint); cursor: default; }
+
+/* files dragged in from outside */
+body.drop-files #sidebar .side-tree { outline: 2px dashed color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: -4px; border-radius: 6px; }
 
 [data-theme="ai"] .ed-head { background: rgba(17, 10, 34, 0.72); }
 [data-theme="ai"] .ed-body { background: transparent; }

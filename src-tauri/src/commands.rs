@@ -109,9 +109,19 @@ pub async fn delete_entry(state: State<'_, AppState>, rel: String) -> Result<(),
 }
 
 #[tauri::command]
-pub async fn search_notes(state: State<'_, AppState>, query: String) -> Result<Vec<notes::Hit>, String> {
+pub async fn search_notes(state: State<'_, AppState>, query: String, case: Option<bool>, word: Option<bool>) -> Result<Vec<notes::Hit>, String> {
     let (root, exts) = (state.notes_dir(), state.settings.get().note_exts());
-    blocking(move || notes::search(&root, &exts, &query, 300)).await
+    let o = notes::SearchOpts { case: case.unwrap_or(false), word: word.unwrap_or(false) };
+    blocking(move || notes::search(&root, &exts, &query, o, 300)).await
+}
+
+/// A note file dropped from outside (Explorer / Finder), saved into folder `dir`. Returns its path.
+#[tauri::command]
+pub async fn import_note(state: State<'_, AppState>, dir: String, name: String, data: String) -> Result<String, String> {
+    use base64::Engine;
+    let (root, exts) = (state.notes_dir(), state.settings.get().note_exts());
+    let bytes = base64::engine::general_purpose::STANDARD.decode(data.trim()).map_err(|e| e.to_string())?;
+    blocking(move || notes::import_note(&root, &dir, &name, &bytes, &exts)).await
 }
 
 /// Absolute path of a note (for "show in folder" / "open with").
