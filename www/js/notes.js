@@ -92,6 +92,48 @@ export function droppedFiles(dt) {
 export const isImageName = (n) => /\.(png|jpe?g|gif|webp|svg|bmp|avif|ico)$/i.test(n);
 const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
 
+// ───────────────────────── starred notes ─────────────────────────
+
+let starSet = null;
+const starListeners = [];
+const stars = () => {
+  if (!starSet) { try { starSet = new Set(JSON.parse(uiGet('ns.stars') || '[]')); } catch { starSet = new Set(); } }
+  return starSet;
+};
+const saveStars = () => { uiSet('ns.stars', JSON.stringify([...stars()])); for (const f of starListeners) f(); };
+export const isStarred = (rel) => !!rel && stars().has(rel);
+export const starredList = () => [...stars()];
+export const onStars = (f) => starListeners.push(f);
+/** Star / unstar a note (Ctrl+D); true when it is starred now. */
+export function toggleStar(rel) {
+  const s = stars();
+  if (s.has(rel)) s.delete(rel); else s.add(rel);
+  saveStars();
+  toast(s.has(rel) ? t('Csillagozva: {0}', stemOf(rel)) : t('Csillag levéve: {0}', stemOf(rel)), 'ok', 1400);
+  return s.has(rel);
+}
+/** A renamed / moved note or folder keeps its stars. */
+export function retargetStars(from, to, isDir) {
+  const s = stars();
+  let ch = false;
+  for (const r of [...s]) {
+    if (r === from) { s.delete(r); s.add(to); ch = true; }
+    else if (isDir && r.startsWith(from + '/')) { s.delete(r); s.add(to + r.slice(from.length)); ch = true; }
+  }
+  if (ch) saveStars();
+}
+export function dropStars(rel, isDir) {
+  const s = stars();
+  let ch = false;
+  for (const r of [...s]) if (r === rel || (isDir && r.startsWith(rel + '/'))) { s.delete(r); ch = true; }
+  if (ch) saveStars();
+}
+const starBtn = (rel, cls = '') => h('button.star-btn' + cls + (isStarred(rel) ? '.on' : ''), {
+  type: 'button', title: isStarred(rel) ? t('Csillag levétele (Ctrl+D)') : t('Csillagozás (Ctrl+D)'),
+  on: { click: (ev) => { ev.stopPropagation(); toggleStar(rel); }, dblclick: (ev) => ev.stopPropagation() },
+}, icon('star'));
+const starMenuItem = (rel) => ({ label: isStarred(rel) ? t('Csillag levétele') : t('Csillagozás'), icon: 'star', key: 'Ctrl+D', action: () => toggleStar(rel) });
+
 // ───────────────────────── sidebar ─────────────────────────
 
 /**
@@ -107,6 +149,8 @@ export function createSidebar(ctx) {
   let closed = new Set();
   try { closed = new Set(JSON.parse(uiGet('ns.closed') || '[]')); } catch { /* none */ }
   const saveClosed = () => uiSet('ns.closed', JSON.stringify([...closed]));
+  const STARS = '\u0001stars'; // the closed-state key of the starred group
+  onStars(() => draw());
 
   const search = h('input.inp.side-search', { type: 'search', placeholder: t('Keresés a jegyzetekben… (Ctrl+Shift+F)'), spellcheck: 'false' });
   const rerun = () => { if (query) runSearch(); else draw(); };
@@ -223,6 +267,33 @@ export function createSidebar(ctx) {
     const rows = [];
     const visible = (e) => !q || e.rel.toLowerCase().includes(q);
     const countNotes = (dir) => (kids.get(dir) || []).reduce((n, e) => n + (e.dir ? countNotes(e.rel) : e.image ? 0 : 1), 0);
+    // starred notes on top (only those that still exist)
+    const known = new Set(entries.filter((e) => !e.dir).map((e) => e.rel));
+    const starred = starredList().filter((r) => known.has(r) && visible({ rel: r }))
+      .sort((a, b) => stemOf(a).localeCompare(stemOf(b), undefined, { numeric: true, sensitivity: 'base' }));
+    if (starred.length) {
+      const open = !closed.has(STARS) || !!q;
+      rows.push(h('div.trow.tdir.tstar-head' + (open ? '.open' : ''), {
+        style: { '--lvl': 0 }, title: t('Csillagozott jegyzetek (Ctrl+D a nyitott jegyzeten)'),
+        on: { click: () => { if (closed.has(STARS)) closed.delete(STARS); else closed.add(STARS); saveClosed(); draw(); } },
+      }, icon('chev', 'chev'), icon('star'), h('span.nm', t('Csillagozott')), h('span.cnt', String(starred.length))));
+      if (open) {
+        for (const rel of starred) {
+          rows.push(h('div.trow.tnote.tstarred' + (rel === active ? '.sel' : ''), {
+            style: { '--lvl': 1 }, title: rel,
+            on: {
+              click: () => ctx.openNote(rel),
+              contextmenu: (ev) => contextMenu(ev, [
+                { label: t('Megnyitás'), icon: 'note', action: () => ctx.openNote(rel) },
+                starMenuItem(rel),
+                { label: t('Megjelenítés a fában'), icon: 'folderOpen', action: () => { search.value = ''; query = ''; hits = null; api.reveal(rel); } },
+              ]),
+            },
+          }, h('span.tsp'), icon('note'), h('span.nm', stemOf(rel)), dirOf(rel) ? h('span.tm', dirOf(rel)) : null, starBtn(rel)));
+        }
+      }
+      rows.push(h('div.tstar-sep'));
+    }
     const walk = (dir, lvl) => {
       for (const e of sorted(kids.get(dir) || [])) {
         if (e.dir) {
@@ -279,6 +350,7 @@ export function createSidebar(ctx) {
               dragstart: (ev) => { dragRel = e.rel; ev.dataTransfer.setData('text/plain', e.rel); },
               contextmenu: (ev) => contextMenu(ev, [
                 { label: t('Megnyitás'), icon: 'note', action: () => ctx.openNote(e.rel) },
+                starMenuItem(e.rel),
                 { label: t('Átnevezés…'), icon: 'rename', key: 'F2', action: () => ctx.renameEntry(e.rel, false) },
                 { label: t('Megnyitás külső programmal'), icon: 'open', action: () => ctx.openExternal(e.rel) },
                 { label: t('Megjelenítés a mappában'), icon: 'folderOpen', action: () => ctx.reveal(e.rel) },
@@ -288,7 +360,7 @@ export function createSidebar(ctx) {
               ]),
             },
           }, h('span.tsp'), icon(conflict ? 'warnTri' : 'note'), h('span.nm', stemOf(e.rel)), ext && ext !== 'md' ? h('span.ext', ext) : null,
-          h('span.tm', relTime(e.mtime / 1000))));
+          h('span.tm', relTime(e.mtime / 1000)), starBtn(e.rel)));
         }
       }
     };
@@ -308,7 +380,7 @@ export function createSidebar(ctx) {
     return entries;
   }
 
-  return {
+  const api = {
     refresh,
     draw,
     entries: () => entries,
@@ -319,6 +391,7 @@ export function createSidebar(ctx) {
     /** Opens the folders above `rel` so it can be seen. */
     reveal: (rel) => { let d = dirOf(rel); let ch = false; while (d) { if (closed.delete(d)) ch = true; d = dirOf(d); } if (ch) saveClosed(); draw(); },
   };
+  return api;
 }
 
 // ───────────────────────── preview images / help ─────────────────────────
@@ -760,6 +833,7 @@ export class NoteView {
     this.head.replaceChildren(
       h('div.ed-crumbs', parts.map((p, i) => [i ? h('span.sep', '/') : null, h('span' + (i === parts.length - 1 ? '.last' : ''), i === parts.length - 1 ? stemOf(p) : p)])),
       this.lossy ? h('span.ed-ro', { title: t('A fájl nem UTF-8 kódolású; a sérülés elkerülésére csak olvasható.') }, t('csak olvasható')) : null,
+      starBtn(this.rel, '.ed-star'),
       h('span.grow'),
       seg);
     // a sync conflict copy: offer the ways out

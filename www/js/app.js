@@ -7,7 +7,7 @@ import {
 } from './util.js';
 import { t, setLang, getLang } from './i18n.js';
 import { aiUsageInit, aiUsageItem } from './aiusage.js';
-import { NoteView, createSidebar, forgetImages, mdRender, dirOf, stemOf, extOf, joinRel, conflictOriginal, droppedFiles, isImageName } from './notes.js';
+import { NoteView, createSidebar, forgetImages, mdRender, dirOf, stemOf, extOf, joinRel, conflictOriginal, droppedFiles, isImageName, toggleStar, onStars, retargetStars, dropStars } from './notes.js';
 import { createSyncer, syncSettingsPane } from './sync.js';
 
 // ───────────────────────── state ─────────────────────────
@@ -277,6 +277,7 @@ function retarget(from, to, isDir) {
     if (v.rel === from) v.renamed(to);
     else if (isDir && v.rel.startsWith(from + '/')) v.renamed(to + v.rel.slice(from.length));
   }
+  retargetStars(from, to, isDir);
   persistSession();
 }
 
@@ -320,6 +321,7 @@ async function deleteEntry(rel, isDir) {
   if (!(await confirmDlg(t('Törlés'), text, t('Törlés'), true))) return;
   try {
     await invoke('delete_entry', { rel });
+    dropStars(rel, isDir);
     for (let i = S.tabs.length - 1; i >= 0; i--) if (S.tabs[i].rel === rel || (isDir && S.tabs[i].rel.startsWith(rel + '/'))) closeTab(i, true);
     await sidebar.refresh();
     renderAll();
@@ -1076,6 +1078,7 @@ async function boot() {
     }
     else if (mod && e.shiftKey && key === 'a') { e.preventDefault(); if (aiOn()) aiNote(); }
     else if (mod && key === 'f' && v) { e.preventDefault(); v.openFind(); }
+    else if (mod && key === 'd' && v) { e.preventDefault(); toggleStar(v.rel); }
     else if (mod && key === 'e' && v) { e.preventDefault(); v.setMode(v.mode === 'preview' ? 'edit' : 'preview'); }
     else if (mod && key === 's') { e.preventDefault(); saveAll(); }
     else if (mod && key === 'w') { e.preventDefault(); if (S.active >= 0) askCloseTab(S.active); }
@@ -1112,9 +1115,13 @@ async function boot() {
     e.preventDefault(); // otherwise the webview would open the file itself
     e.dataTransfer.dropEffect = document.querySelector('.overlay') ? 'none' : 'copy';
   });
+  // capture phase: runs before a tree row's drop handler stops the event
+  const dropDone = () => { dragDepth = 0; document.body.classList.remove('drop-files'); for (const r of document.querySelectorAll('.trow.drop, .side-tree.drop')) r.classList.remove('drop'); };
+  document.addEventListener('drop', dropDone, true);
+  document.addEventListener('dragend', dropDone, true);
+  window.addEventListener('blur', () => { if (document.body.classList.contains('drop-files')) dropDone(); });
   document.addEventListener('drop', (e) => {
-    dragDepth = 0;
-    document.body.classList.remove('drop-files');
+    dropDone();
     if (!filesDrag(e)) return;
     e.preventDefault();
     if (document.querySelector('.overlay')) return;
@@ -1122,6 +1129,8 @@ async function boot() {
     importFiles(droppedFiles(e.dataTransfer), v ? dirOf(v.rel) : '');
   });
 
+  // the star in the editor head follows the stars changed anywhere
+  onStars(() => { for (const v of S.tabs) if (v.root) v.drawHead(); });
   startAutoSync();
   if (S.settings.sync_on_start !== false && S.settings.targets.some((x) => x.enabled)) setTimeout(() => { lastAuto = Date.now(); syncer.syncAll(); }, 1500);
   if (S.settings.update_check !== false) setTimeout(() => checkForAppUpdate({ silent: true }), 4000);

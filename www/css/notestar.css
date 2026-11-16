@@ -35,6 +35,16 @@
 .trow .tsp { width: 12px; flex: none; }
 .trow .nm { overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
 .tdir .nm { font-weight: 600; }
+/* starred notes */
+.star-btn { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--text-faint); cursor: pointer; opacity: 0; }
+.star-btn svg.i { width: 14px; height: 14px; color: inherit; }
+.trow:hover .star-btn, .star-btn:focus-visible, .star-btn.ed-star { opacity: .7; }
+.star-btn:hover { opacity: 1; color: #f5b301; background: var(--bg-hover); }
+.star-btn.on { opacity: 1; color: #f5b301; }
+.star-btn.on svg.i { fill: currentColor; }
+.tstar-head svg.i:not(.chev) { color: #f5b301; fill: currentColor; }
+.tstarred .tm { overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+.tstar-sep { height: 1px; margin: 4px 8px; background: var(--border); }
 .trow .cnt, .trow .tm { font-size: 11px; color: var(--text-faint); flex: none; }
 .trow .tm { display: none; }
 .trow:hover .tm { display: inline; }
