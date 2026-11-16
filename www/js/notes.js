@@ -23,6 +23,75 @@ export function textStats(s) {
   return { words, chars: s.length, lines: s ? s.split('\n').length : 0 };
 }
 
+// ───────────────────────── search helpers ─────────────────────────
+
+/** Search options shared by the sidebar and the find bar: { case, word }. */
+export const findOpts = () => ({ case: uiGet('ns.findCase') === '1', word: uiGet('ns.findWord') === '1' });
+export const setFindOpt = (k, on) => uiSet(k === 'case' ? 'ns.findCase' : 'ns.findWord', on ? '1' : '0');
+
+/** A global RegExp for `q` with the options, or null for an empty query. */
+export function findRegex(q, o = findOpts()) {
+  if (!q) return null;
+  let src = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (o.word) src = `(?<![\\p{L}\\p{N}_])${src}(?![\\p{L}\\p{N}_])`;
+  return new RegExp(src, 'gu' + (o.case ? '' : 'i'));
+}
+
+/** Every match of `re` in `text` as [start, end]. */
+export function findAll(text, re) {
+  const out = [];
+  if (!re) return out;
+  re.lastIndex = 0;
+  for (let m; (m = re.exec(text));) {
+    if (!m[0].length) { re.lastIndex++; continue; }
+    out.push([m.index, m.index + m[0].length]);
+  }
+  return out;
+}
+
+/** HTML of `text` with the matches of `re` in <mark>. */
+export function markHtml(text, re, cls = '') {
+  if (!re) return esc(text);
+  let out = '', at = 0;
+  for (const [a, b] of findAll(text, re)) { out += esc(text.slice(at, a)) + `<mark${cls ? ` class="${cls}"` : ''}>` + esc(text.slice(a, b)) + '</mark>'; at = b; }
+  return out + esc(text.slice(at));
+}
+
+/** Option toggle button (Aa / whole word) bound to findOpts. */
+function optBtn(key, label, title, onChange) {
+  const b = h('button.icon-btn.find-opt', { type: 'button', title, on: {
+    mousedown: (e) => e.preventDefault(),
+    click: () => { const on = !findOpts()[key]; setFindOpt(key, on); b.classList.toggle('on', on); onChange(); },
+  } }, h('span', { html: label }));
+  b.classList.toggle('on', findOpts()[key]);
+  return b;
+}
+
+// ───────────────────────── dropped files ─────────────────────────
+
+/**
+ * Files dropped from Explorer / Finder, folders walked recursively:
+ * Promise<[{ file, sub }]>, `sub` = the folder inside the dropped one ('' for top level).
+ * Must be called synchronously in the drop handler.
+ */
+export function droppedFiles(dt) {
+  const entries = [...(dt?.items || [])].map((it) => (it.kind === 'file' && it.webkitGetAsEntry ? it.webkitGetAsEntry() : null));
+  if (!entries.length || entries.some((e) => !e)) return Promise.resolve([...(dt?.files || [])].map((file) => ({ file, sub: '' })));
+  const out = [];
+  const readAll = (dir) => new Promise((ok) => {
+    const r = dir.createReader(); const all = [];
+    const next = () => r.readEntries((b) => { if (!b.length) ok(all); else { all.push(...b); next(); } }, () => ok(all));
+    next();
+  });
+  const walk = async (e, sub) => {
+    if (e.isFile) { const file = await new Promise((ok) => e.file(ok, () => ok(null))); if (file) out.push({ file, sub }); return; }
+    if (e.isDirectory && !e.name.startsWith('.')) for (const c of await readAll(e)) await walk(c, joinRel(sub, e.name));
+  };
+  return (async () => { for (const e of entries) await walk(e, ''); return out; })();
+}
+export const isImageName = (n) => /\.(png|jpe?g|gif|webp|svg|bmp|avif|ico)$/i.test(n);
+const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+
 // ───────────────────────── sidebar ─────────────────────────
 
 /**
@@ -40,6 +109,10 @@ export function createSidebar(ctx) {
   const saveClosed = () => uiSet('ns.closed', JSON.stringify([...closed]));
 
   const search = h('input.inp.side-search', { type: 'search', placeholder: t('Keresés a jegyzetekben… (Ctrl+Shift+F)'), spellcheck: 'false' });
+  const rerun = () => { if (query) runSearch(); else draw(); };
+  const optCase = optBtn('case', 'Aa', t('Kis- és nagybetű megkülönböztetése'), rerun);
+  const optWord = optBtn('word', '<u>ab</u>', t('Csak egész szavak'), rerun);
+  let expanded = new Set(); // notes whose every matching line is shown
   const body = h('div.side-tree');
   const sortBtn = h('button.icon-btn', { on: { click: () => {
     const s = ctx.settings();
@@ -51,6 +124,8 @@ export function createSidebar(ctx) {
   // texts depend on the UI language: redrawn on every refresh (the sidebar is built before the language is set)
   const drawHead = () => {
     search.placeholder = t('Keresés a jegyzetekben… (Ctrl+Shift+F)');
+    optCase.title = t('Kis- és nagybetű megkülönböztetése');
+    optWord.title = t('Csak egész szavak');
     head.replaceChildren(
       h('span.side-title', t('Jegyzetek')), h('span.grow'),
       h('button.icon-btn', { title: t('Új jegyzet (Ctrl+N)'), on: { click: () => ctx.newNote(currentDir()) } }, icon('newNote')),
@@ -60,7 +135,7 @@ export function createSidebar(ctx) {
       h('button.icon-btn', { title: t('Frissítés'), on: { click: () => refresh() } }, icon('refresh')));
   };
   drawHead();
-  el.replaceChildren(head, h('div.side-filter', search), body);
+  el.replaceChildren(head, h('div.side-filter', search, optCase, optWord), body);
 
   /** Folder of the open note: new notes go next to it. */
   const currentDir = () => { const r = ctx.activeRel(); return r ? dirOf(r) : ''; };
@@ -69,27 +144,35 @@ export function createSidebar(ctx) {
     const q = query;
     if (q.length < 2) { hits = null; draw(); return; }
     try {
-      const res = await invoke('search_notes', { query: q });
-      if (q === query) { hits = res; draw(); }
+      const o = findOpts();
+      const res = await invoke('search_notes', { query: q, case: o.case, word: o.word });
+      if (q === query) { hits = res; expanded = new Set(); draw(); }
     } catch (e) { toast(String(e), 'err'); }
   }, 220);
   search.addEventListener('input', () => { query = search.value.trim(); if (!query) { hits = null; draw(); } else runSearch(); });
   search.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { search.value = ''; query = ''; hits = null; draw(); }
     if (e.key === 'Enter' && hits?.length) ctx.openNote(hits[0].rel, { line: hits[0].line, find: query });
+    if (e.key === 'ArrowDown') { e.preventDefault(); body.querySelector('[tabindex]')?.focus(); }
   });
 
   // ── drag & drop: move notes and folders ──
   let dragRel = null;
   const dropOn = (row, dir) => {
     row.addEventListener('dragover', (e) => {
+      if (!dragRel && hasFiles(e)) { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'copy'; row.classList.add('drop'); return; }
       if (!dragRel || dragRel === dir || (dir + '/').startsWith(dragRel + '/') || dirOf(dragRel) === dir) return;
       e.preventDefault();
       e.stopPropagation();
       row.classList.add('drop');
     });
-    row.addEventListener('dragleave', () => row.classList.remove('drop'));
-    row.addEventListener('drop', (e) => { e.preventDefault(); e.stopPropagation(); row.classList.remove('drop'); const from = dragRel; dragRel = null; if (from) ctx.move(from, dir); });
+    row.addEventListener('dragleave', (e) => { if (!row.contains(e.relatedTarget)) row.classList.remove('drop'); });
+    row.addEventListener('drop', (e) => {
+      e.preventDefault(); e.stopPropagation(); row.classList.remove('drop');
+      const from = dragRel; dragRel = null;
+      if (from) ctx.move(from, dir);
+      else if (hasFiles(e)) ctx.importFiles(droppedFiles(e.dataTransfer), dir);
+    });
     row.addEventListener('dragend', () => { dragRel = null; row.classList.remove('drop'); });
   };
   dropOn(body, '');
@@ -105,12 +188,29 @@ export function createSidebar(ctx) {
     sortBtn.title = ctx.settings().sort === 'name' ? t('Rendezés: név szerint (kattints: módosítás szerint)') : t('Rendezés: legutóbb módosított elöl (kattints: név szerint)');
     const active = ctx.activeRel();
     if (hits) {
-      body.replaceChildren(hits.length ? hits.map((x) => h('div.hit' + (x.rel === active ? '.sel' : ''), {
-        title: x.rel,
-        on: { click: () => ctx.openNote(x.rel, { line: x.line, find: query }) },
-      }, h('div.hit-name', icon('note'), h('span', stemOf(x.rel)), x.count ? h('span.hit-cnt', String(x.count)) : null),
-      dirOf(x.rel) ? h('div.hit-dir', dirOf(x.rel)) : null,
-      x.snippet ? h('div.hit-snip', { html: highlight(x.snippet, query) }) : null)) : h('div.empty-small', t('Nincs találat.')));
+      const re = findRegex(query);
+      const total = hits.reduce((n, x) => n + x.count, 0);
+      const open = (x, line) => ctx.openNote(x.rel, { line, find: query });
+      const key = (fn) => (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); const all = [...body.querySelectorAll('[tabindex]')]; const i = all.indexOf(e.target); (all[i + (e.key === 'ArrowDown' ? 1 : -1)] || (i <= 0 && e.key === 'ArrowUp' ? search : null))?.focus(); } };
+      const SHOW = 4;
+      body.replaceChildren(
+        h('div.hit-sum', hits.length ? t('{0} találat · {1} jegyzet', total, hits.length) : t('Nincs találat.')),
+        ...hits.map((x) => {
+          const ms = x.matches || [];
+          const more = !expanded.has(x.rel) && ms.length > SHOW ? ms.length - SHOW : 0;
+          const first = () => open(x, x.line);
+          return h('div.hit' + (x.rel === active ? '.sel' : ''), { title: x.rel },
+            h('div.hit-name', { tabindex: '0', on: { click: first, keydown: key(first) } },
+              icon('note'), h('span', { html: markHtml(stemOf(x.rel), re) }), x.count ? h('span.hit-cnt', String(x.count)) : null),
+            dirOf(x.rel) ? h('div.hit-dir', dirOf(x.rel)) : null,
+            ms.slice(0, more ? SHOW : ms.length).map((m) => {
+              const go = () => open(x, m.line);
+              return h('div.hit-line', { tabindex: '0', on: { click: go, keydown: key(go) } },
+                h('span.hit-ln', String(m.line)), h('span.hit-snip', { html: markHtml(m.snippet, re) }));
+            }),
+            more ? h('div.hit-more', { on: { click: () => { expanded.add(x.rel); draw(); } } }, t('+{0} további sor', more)) : null,
+            ms.length >= 30 && !more ? h('div.hit-more.dim', t('…a többi a jegyzetben (Ctrl+F)')) : null);
+        }));
       return;
     }
     const kids = new Map();
@@ -212,7 +312,10 @@ export function createSidebar(ctx) {
     refresh,
     draw,
     entries: () => entries,
-    focusSearch: () => { search.focus(); search.select(); },
+    focusSearch: (q) => {
+      if (q && q !== search.value) { search.value = q; query = q.trim(); runSearch(); }
+      search.focus(); search.select();
+    },
     /** Opens the folders above `rel` so it can be seen. */
     reveal: (rel) => { let d = dirOf(rel); let ch = false; while (d) { if (closed.delete(d)) ch = true; d = dirOf(d); } if (ch) saveClosed(); draw(); },
   };
@@ -299,13 +402,6 @@ const SAMPLE_IMG = 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w
   + '<rect width="240" height="120" rx="10" fill="url(#g)"/><path d="M0 120 L70 62 L110 92 L160 44 L240 104 V120 Z" fill="#6366f1" opacity=".55"/>'
   + '<path d="M190 18l5.9 12 13.1 1.9-9.5 9.3 2.2 13.1L190 48.1l-11.7 6.2 2.2-13.1-9.5-9.3 13.1-1.9z" fill="url(#s)"/></svg>');
 const slugHint = (s) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, '-');
-
-function highlight(snippet, q) {
-  const s = esc(snippet);
-  if (!q) return s;
-  const re = new RegExp(esc(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-  return s.replace(re, (m) => `<mark>${m}</mark>`);
-}
 
 // ───────────────────────── editor ─────────────────────────
 
@@ -429,7 +525,12 @@ export class NoteView {
     this.tools = h('div.ed-tools');
     this.banner = h('div.ed-banner');
     this.findBar = null;
-    this.body = h('div.ed-body', h('div.ed-pane.ed-src', this.ta), h('div.ed-pane.ed-prev', this.preview));
+    this.findQ = '';
+    // find highlights behind the (transparent) textarea
+    this.hlIn = h('div.ed-hl-in');
+    this.hl = h('div.ed-hl', this.hlIn);
+    this.body = h('div.ed-body', h('div.ed-pane.ed-src', this.hl, this.ta), h('div.ed-pane.ed-prev', this.preview));
+    new ResizeObserver(() => { if (this.findQ) this.paintEditorHits(); }).observe(this.ta);
     this.root = h('div.ed', this.head, this.tools, this.banner, this.body);
 
     this.ta.addEventListener('input', () => {
@@ -437,9 +538,11 @@ export class NoteView {
       this.ctx.changed();
       this.saveSoon();
       if (this.mode !== 'edit') this.renderPreview();
+      if (this.findQ) { this.paintEditorHits(); this.findCount(); }
     });
     this.ta.addEventListener('keydown', (e) => this.onKey(e));
     this.ta.addEventListener('scroll', () => {
+      if (this.findQ) this.scrollHits();
       if (this.mode !== 'split') return;
       const r = this.ta.scrollTop / Math.max(1, this.ta.scrollHeight - this.ta.clientHeight);
       const p = this.preview.parentElement;
@@ -476,10 +579,15 @@ export class NoteView {
         this.linkImage(treeImg);
         return;
       }
-      const files = [...(e.dataTransfer?.files || [])].filter((f) => f.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp|avif|ico)$/i.test(f.name));
-      if (!files.length || this.lossy) return;
+      // pictures are linked into the note; note files (.md, .txt...) are imported next to it
+      const all = [...(e.dataTransfer?.files || [])];
+      const files = all.filter((f) => f.type.startsWith('image/') || isImageName(f.name));
+      if (!files.length || this.lossy) return; // no picture: the window imports the files
       e.preventDefault();
+      e.stopPropagation();
       this.addImages(files, false);
+      const rest = all.filter((f) => !files.includes(f));
+      if (rest.length) this.ctx.importFiles(Promise.resolve(rest.map((file) => ({ file, sub: '' }))), dirOf(this.rel));
     });
     this.preview.addEventListener('dblclick', () => { if (this.mode === 'preview') this.setMode('edit'); });
   }
@@ -669,6 +777,7 @@ export class NoteView {
     this.tools.classList.toggle('none', this.mode === 'preview');
     if (this.mode !== 'edit') this.renderPreview();
     this.drawHead();
+    if (this.findQ) { this.paintEditorHits(); this.findCount(); }
   }
 
   renderPreview() {
@@ -699,6 +808,7 @@ export class NoteView {
       img.dataset.rel = rel;
       loadImage(rel).then((url) => { img.src = url; }, () => { img.classList.add('broken'); img.title = t('A kép nem található: {0}', rel); });
     }
+    if (this.findQ) this.paintPreviewHits();
   }
 
   /** Size menu of an image in the preview; the size is written into the note. */
@@ -900,61 +1010,187 @@ export class NoteView {
 
   gotoLine(line, find) {
     if (!this.ta || !line) return;
+    if (find) {
+      // from the full-text search: keep the words highlighted
+      this.openFind(find);
+      const lines = this.text.split('\n');
+      let pos = 0;
+      for (let i = 0; i < line - 1 && i < lines.length; i++) pos += lines[i].length + 1;
+      const m = this.findMatches().find(([a]) => a >= pos);
+      if (this.mode === 'preview') { this.findGo(1, m ? m[0] : pos); return; }
+      this.selectHit(m || [pos, pos]);
+      this.findInp?.focus();
+      return;
+    }
     const lines = this.text.split('\n');
     let pos = 0;
     for (let i = 0; i < line - 1 && i < lines.length; i++) pos += lines[i].length + 1;
-    let end = pos;
-    if (find) {
-      const at = lines[line - 1]?.toLowerCase().indexOf(find.toLowerCase()) ?? -1;
-      if (at >= 0) { pos += at; end = pos + find.length; }
-    }
     if (this.mode === 'preview') this.setMode('split');
-    this.ta.focus();
-    this.ta.setSelectionRange(pos, end);
-    // scroll the caret to the middle: measure with the line height
-    const lh = parseFloat(getComputedStyle(this.ta).lineHeight) || 20;
-    this.ta.scrollTop = Math.max(0, (line - 1) * lh - this.ta.clientHeight / 3);
+    this.selectHit([pos, pos]);
   }
 
   // ── find in note ──
-  openFind() {
-    if (this.findBar) { this.findBar.querySelector('input').select(); return; }
-    const inp = h('input.inp', { placeholder: t('Keresés a jegyzetben…'), spellcheck: 'false' });
+  findRe() { return findRegex(this.findQ); }
+  findMatches() { return findAll(this.text, this.findRe()); }
+
+  /** Selects [a, b] in the textarea and scrolls it to the upper third. */
+  selectHit([a, b]) {
+    this.ta.focus();
+    this.ta.setSelectionRange(a, b);
+    const line = this.ta.value.slice(0, a).split('\n').length;
+    const lh = parseFloat(getComputedStyle(this.ta).lineHeight) || 20;
+    // with wrapped lines the line number is only a guess: let the highlight layer measure
+    const mark = this.hlIn.querySelector(`mark[data-a="${a}"]`);
+    this.ta.scrollTop = Math.max(0, (mark ? mark.offsetTop : (line - 1) * lh) - this.ta.clientHeight / 3);
+    this.paintEditorHits();
+  }
+
+  /** The highlight layer copies the textarea's box and text, matches in <mark>. */
+  paintEditorHits() {
+    if (!this.hl) return;
+    const re = this.findQ && this.mode !== 'preview' ? this.findRe() : null;
+    this.hl.classList.toggle('none', !re);
+    if (!re) { this.hlIn.textContent = ''; return; }
+    const ta = this.ta, cs = getComputedStyle(ta);
+    Object.assign(this.hl.style, { width: ta.clientWidth + 'px', height: ta.clientHeight + 'px' });
+    for (const k of ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'lineHeight',
+      'letterSpacing', 'wordSpacing', 'tabSize', 'whiteSpace', 'overflowWrap', 'wordBreak', 'textIndent']) this.hlIn.style[k] = cs[k];
+    this.hlIn.style.width = ta.clientWidth + 'px';
+    const v = ta.value, sa = ta.selectionStart, sb = ta.selectionEnd;
+    let out = '', at = 0;
+    for (const [a, b] of findAll(v, re)) {
+      out += esc(v.slice(at, a)) + `<mark data-a="${a}"${a === sa && b === sb ? ' class="cur"' : ''}>${esc(v.slice(a, b))}</mark>`;
+      at = b;
+    }
+    this.hlIn.innerHTML = out + esc(v.slice(at)) + '\n ';
+    this.scrollHits();
+  }
+  scrollHits() { this.hlIn.style.transform = `translate(${-this.ta.scrollLeft}px, ${-this.ta.scrollTop}px)`; }
+
+  /** Marks the matches in the rendered preview (text only, links and code too). */
+  paintPreviewHits() {
+    const re = this.findRe();
+    this.pvMarks = [];
+    if (!re) return;
+    const walker = document.createTreeWalker(this.preview, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    for (let n; (n = walker.nextNode());) if (n.nodeValue.trim()) nodes.push(n);
+    for (const n of nodes) {
+      const hits = findAll(n.nodeValue, re);
+      if (!hits.length) continue;
+      const frag = document.createDocumentFragment();
+      let at = 0;
+      for (const [a, b] of hits) {
+        frag.append(n.nodeValue.slice(at, a));
+        const m = h('mark.find-hit', n.nodeValue.slice(a, b));
+        this.pvMarks.push(m);
+        frag.append(m);
+        at = b;
+      }
+      frag.append(n.nodeValue.slice(at));
+      n.replaceWith(frag);
+    }
+  }
+  clearPreviewHits() {
+    for (const m of this.preview.querySelectorAll('mark.find-hit')) m.replaceWith(m.textContent);
+    this.preview.normalize();
+    this.pvMarks = [];
+  }
+
+  /** "3/12" (or "12" when the caret is not on a match). */
+  findCount() {
+    if (!this.findBar) return;
+    const cnt = this.findBar.querySelector('.cnt');
+    if (!this.findQ) { cnt.textContent = ''; this.findBar.classList.remove('none'); return; }
+    let total, cur = 0;
+    if (this.mode === 'preview') {
+      total = this.pvMarks?.length || 0;
+      cur = (this.pvMarks || []).findIndex((m) => m.classList.contains('cur')) + 1;
+    } else {
+      const ms = this.findMatches();
+      total = ms.length;
+      cur = ms.findIndex(([a, b]) => a === this.ta.selectionStart && b === this.ta.selectionEnd) + 1;
+    }
+    cnt.textContent = total ? (cur ? `${cur}/${total}` : String(total)) : t('nincs');
+    this.findBar.classList.toggle('none', !total);
+  }
+
+  /** Next / previous match from the caret (or from position `from`). */
+  findGo(dir, from) {
+    if (!this.findQ) return;
+    if (this.mode === 'preview') {
+      const ms = this.pvMarks || [];
+      if (!ms.length) { this.findCount(); return; }
+      let i = ms.findIndex((m) => m.classList.contains('cur'));
+      ms.forEach((m) => m.classList.remove('cur'));
+      if (from != null) {
+        // which preview mark belongs to the source match: count the matches before it
+        i = Math.min(ms.length - 1, this.findMatches().filter(([a]) => a < from).length);
+      } else i = i < 0 ? (dir > 0 ? 0 : ms.length - 1) : (i + dir + ms.length) % ms.length;
+      ms[i].classList.add('cur');
+      ms[i].scrollIntoView({ block: 'center' });
+      this.findCount();
+      return;
+    }
+    const ms = this.findMatches();
+    if (!ms.length) { this.paintEditorHits(); this.findCount(); return; }
+    const a = from ?? (dir > 0 ? this.ta.selectionEnd : this.ta.selectionStart);
+    const m = dir > 0 ? (ms.find(([x]) => x >= a) || ms[0]) : ([...ms].reverse().find(([x]) => x < a) || ms[ms.length - 1]);
+    this.selectHit(m);
+    this.findCount();
+    this.findInp?.focus();
+  }
+
+  /** Repaints everything after the query, the options or the view mode changed. */
+  findRefresh() {
+    this.paintEditorHits();
+    if (this.mode !== 'edit') { this.clearPreviewHits(); this.paintPreviewHits(); }
+    this.findCount();
+  }
+
+  openFind(q) {
+    if (this.findBar) {
+      if (q != null && q !== this.findInp.value) { this.findInp.value = q; this.findQ = q; this.findRefresh(); }
+      this.findInp.focus(); this.findInp.select();
+      return;
+    }
+    const inp = this.findInp = h('input.inp', { placeholder: t('Keresés a jegyzetben…'), spellcheck: 'false' });
     const cnt = h('span.cnt');
-    const go = (dir) => {
-      const q = inp.value.toLowerCase();
-      if (!q) return;
-      const v = this.ta.value.toLowerCase();
-      let from = dir > 0 ? this.ta.selectionEnd : this.ta.selectionStart - 1;
-      let at = dir > 0 ? v.indexOf(q, from) : v.lastIndexOf(q, Math.max(0, from));
-      if (at < 0) at = dir > 0 ? v.indexOf(q) : v.lastIndexOf(q);
-      const total = v.split(q).length - 1;
-      cnt.textContent = total ? `${v.slice(0, Math.max(0, at)).split(q).length}/${total}` : t('nincs');
-      this.findBar.classList.toggle('none', !total);
-      if (at < 0) return;
-      if (this.mode === 'preview') this.setMode('split');
-      this.ta.focus();
-      this.ta.setSelectionRange(at, at + q.length);
-      const line = this.ta.value.slice(0, at).split('\n').length;
-      const lh = parseFloat(getComputedStyle(this.ta).lineHeight) || 20;
-      this.ta.scrollTop = Math.max(0, (line - 1) * lh - this.ta.clientHeight / 3);
-      inp.focus();
-    };
     inp.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); go(e.shiftKey ? -1 : 1); }
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); this.ctx.searchAll(inp.value); return; }
+      if (e.key === 'Enter') { e.preventDefault(); this.findGo(e.shiftKey ? -1 : 1); }
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.closeFind(); }
     });
-    inp.addEventListener('input', () => { this.ta.setSelectionRange(this.ta.selectionStart, this.ta.selectionStart); go(1); });
-    this.findBar = h('div.ed-find', icon('search'), inp, cnt,
-      h('button.icon-btn', { title: t('Előző (Shift+Enter)'), on: { click: () => go(-1) } }, icon('up')),
-      h('button.icon-btn', { title: t('Következő (Enter)'), on: { click: () => go(1) } }, icon('down')),
-      h('button.icon-btn', { title: t('Bezárás'), on: { click: () => this.closeFind() } }, icon('close')));
+    inp.addEventListener('input', () => {
+      this.findQ = inp.value;
+      this.findRefresh();
+      // jump to the first match from where the caret was
+      if (this.findQ) this.findGo(1, this.mode === 'preview' ? 0 : this.ta.selectionStart);
+    });
+    const refresh = () => { this.findRefresh(); if (this.findQ) this.findGo(1, this.mode === 'preview' ? undefined : this.ta.selectionStart); };
+    this.findBar = h('div.ed-find', icon('search'), inp,
+      optBtn('case', 'Aa', t('Kis- és nagybetű megkülönböztetése'), refresh),
+      optBtn('word', '<u>ab</u>', t('Csak egész szavak'), refresh),
+      cnt,
+      h('button.icon-btn', { title: t('Előző (Shift+Enter)'), on: { click: () => this.findGo(-1) } }, icon('up')),
+      h('button.icon-btn', { title: t('Következő (Enter)'), on: { click: () => this.findGo(1) } }, icon('down')),
+      h('button.icon-btn', { title: t('Keresés minden jegyzetben (Ctrl+Enter)'), on: { click: () => this.ctx.searchAll(inp.value) } }, icon('globe')),
+      h('button.icon-btn', { title: t('Bezárás (Esc)'), on: { click: () => this.closeFind() } }, icon('close')));
     this.root.append(this.findBar);
     const sel = this.ta.value.slice(this.ta.selectionStart, this.ta.selectionEnd);
-    if (sel && !sel.includes('\n')) inp.value = sel;
+    inp.value = q ?? (sel && !sel.includes('\n') ? sel : '');
+    this.findQ = inp.value;
+    this.findRefresh();
     inp.focus();
     inp.select();
   }
 
-  closeFind() { this.findBar?.remove(); this.findBar = null; this.ta?.focus(); }
+  closeFind() {
+    this.findBar?.remove();
+    this.findBar = this.findInp = null;
+    this.findQ = '';
+    this.paintEditorHits();
+    this.clearPreviewHits();
+    if (this.mode !== 'preview') this.ta?.focus();
+  }
 }

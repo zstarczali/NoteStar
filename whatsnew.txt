@@ -1,6 +1,25 @@
 NoteStar - What's new
 =====================
 
+0.3.0
+-----
+- Better search. In every note (Ctrl+Shift+F): all matching lines of
+  each note with line numbers, the words highlighted, match case and
+  whole word options, keyboard navigation; the selected words are
+  searched right away. In the open note (Ctrl+F): every match is
+  highlighted in the editor and in the preview, the current one stands
+  out, with the same options, and a button (Ctrl+Enter) searches all
+  notes for the same words.
+- Drop .md / .txt files (or whole folders) from Explorer / Finder into
+  NoteStar: they are copied into the notes folder (onto a folder in the
+  tree, or next to the open note) with their subfolders and opened.
+- AI token counter in the status bar: the tokens used by the AI
+  features (input, output, prompt cache), counted from every answer of
+  the Claude API, DeepSeek and the Claude Code CLI. Click it for the
+  details per provider and model, this session and all time (with the
+  cost the Claude Code CLI reports), and to reset the counter. The
+  counts are kept across restarts.
+
 0.2.0
 -----
 - Full Markdown (CommonMark + GitHub extensions: tables, task lists,

@@ -6,7 +6,8 @@ import {
   initUiState, uiGet, uiSet, editMenu, splitter, relTime,
 } from './util.js';
 import { t, setLang, getLang } from './i18n.js';
-import { NoteView, createSidebar, forgetImages, mdRender, dirOf, stemOf, extOf, joinRel, conflictOriginal } from './notes.js';
+import { aiUsageInit, aiUsageItem } from './aiusage.js';
+import { NoteView, createSidebar, forgetImages, mdRender, dirOf, stemOf, extOf, joinRel, conflictOriginal, droppedFiles, isImageName } from './notes.js';
 import { createSyncer, syncSettingsPane } from './sync.js';
 
 // ───────────────────────── state ─────────────────────────
@@ -59,7 +60,41 @@ const ctx = {
   aiOn: () => aiOn(),
   aiMerge: (view, orig) => aiMerge(view, orig),
   keepBoth: (view) => keepBoth(view),
+  importFiles: (list, dir) => importFiles(list, dir),
+  searchAll: (q) => searchAll(q),
 };
+
+/** Full-text search in every note, from the find bar / a selection. */
+function searchAll(q) {
+  sidebar.focusSearch((q || '').trim());
+}
+
+/**
+ * Note files dropped from Explorer / Finder (dropped folders keep their structure),
+ * copied into folder `dir` of the notes. `list`: Promise<[{ file, sub }]>.
+ */
+async function importFiles(list, dir = '') {
+  let files;
+  try { files = await list; } catch (e) { toast(String(e), 'err'); return; }
+  files = files.filter((x) => x.file);
+  if (!files.length) return;
+  const done = [], skipped = [];
+  for (const { file, sub } of files) {
+    // pictures belong to a note: they are dropped into the editor instead
+    if (isImageName(file.name)) { skipped.push(file.name); continue; }
+    try {
+      const buf = new Uint8Array(await file.arrayBuffer());
+      let bin = '';
+      for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+      done.push(await invoke('import_note', { dir: joinRel(dir, sub), name: file.name, data: btoa(bin) }));
+    } catch (e) { skipped.push(`${file.name}: ${e}`); }
+  }
+  await sidebar.refresh();
+  if (done.length === 1) await openNote(done[0]);
+  else if (done.length) { sidebar.reveal(done[0]); toast(t('{0} jegyzet importálva', done.length), 'ok'); }
+  if (skipped.length) toast(t('Nem importálva ({0}):', skipped.length) + '\n' + skipped.slice(0, 6).join('\n') + (skipped.length > 6 ? '\n…' : ''), 'err', 7000);
+  if (done.length) syncAfterSave();
+}
 
 const sidebar = createSidebar(ctx);
 
@@ -424,7 +459,7 @@ function renderStatusbar() {
     ...(v ? v.status() : []),
     syncEl,
     zoomNow() !== 1 ? h('span.zoom-status', { title: t('Nagyítás visszaállítása 100%-ra (Ctrl+0)'), on: { click: () => setZoom(1) } }, Math.round(zoomNow() * 100) + '%') : null,
-    aiOn() ? h('span', t('AI: {0}', aiKey() ? aiModel() : t('nincs beállítva'))) : null,
+    aiOn() ? aiUsageItem(aiKey() ? aiModel() : t('nincs beállítva')) : null,
     S.update?.updateAvailable ? h('span.update-status', { title: t('Kattints a telepítéshez'), on: { click: () => updateShowAvailable() } }, icon('fetch'), t('Frissítés elérhető: v{0}', S.update.latestVersion)) : null,
   );
 }
@@ -771,7 +806,7 @@ async function settingsDlg(startTab) {
     ['look', t('Megjelenés'), h('div.settings-grid',
       fld('ui_language', t('Felület nyelve'), sel([['auto', t('Automatikus (rendszer)')], ['hu', 'Magyar'], ['en', 'English']], s.ui_language || 'auto')),
       h('div'),
-      fld('theme', t('Téma'), sel([['dark', t('Sötét')], ['light', t('Világos')], ['ai', 'AI (neon)'], ['retro', t('Retró (8 bites)')], ['modern', t('Modern (üveg)')], ['modern-dark', t('Modern sötét (üveg)')], ['system', t('Rendszer szerint')]], s.theme)),
+      fld('theme', t('Téma'), sel([['dark', t('Sötét')], ['light', t('Világos')], ['ai', 'Neon'], ['retro', t('Retró (8 bites)')], ['modern', t('Modern (üveg)')], ['modern-dark', t('Modern sötét (üveg)')], ['system', t('Rendszer szerint')]], s.theme)),
       fld('font_size', t('Felület betűmérete'), h('input.inp', { type: 'number', min: 10, max: 20, value: s.font_size })),
       fld('zoom', t('Nagyítás'), sel(ZOOMS.map((z) => [String(z), Math.round(z * 100) + '%']), String(ZOOMS.includes(zoomNow()) ? zoomNow() : 1)),
         t('Gyorsan: Ctrl + / Ctrl − / Ctrl 0, vagy Ctrl + egérgörgő.')))],
@@ -972,6 +1007,7 @@ async function boot() {
   splitter(document.getElementById('side-split'), document.getElementById('sidebar'), { min: 180, max: 640, key: 'ns.sideW' });
   await sidebar.refresh();
   renderAll();
+  aiUsageInit(() => renderStatusbar());
   startDonationTimer();
   loadSyncInfo();
 
@@ -1029,7 +1065,15 @@ async function boot() {
     else if (e.key === 'F2' && v && !inField) { e.preventDefault(); renameEntry(v.rel, false); }
     else if (mod && e.shiftKey && key === 'n') { e.preventDefault(); newFolder(v ? dirOf(v.rel) : ''); }
     else if (mod && key === 'n') { e.preventDefault(); newNote(v ? dirOf(v.rel) : ''); }
-    else if (mod && e.shiftKey && key === 'f') { e.preventDefault(); sidebar.focusSearch(); }
+    else if (mod && e.shiftKey && key === 'f') {
+      e.preventDefault();
+      // the selected words (editor or preview) are searched everywhere
+      let sel = '';
+      if (v?.ta && document.activeElement === v.ta) sel = v.ta.value.slice(v.ta.selectionStart, v.ta.selectionEnd);
+      else if (v?.findInp && document.activeElement === v.findInp) sel = v.findInp.value;
+      else sel = String(getSelection() || '');
+      searchAll(sel && !sel.includes('\n') && sel.length < 200 ? sel : '');
+    }
     else if (mod && e.shiftKey && key === 'a') { e.preventDefault(); if (aiOn()) aiNote(); }
     else if (mod && key === 'f' && v) { e.preventDefault(); v.openFind(); }
     else if (mod && key === 'e' && v) { e.preventDefault(); v.setMode(v.mode === 'preview' ? 'edit' : 'preview'); }
@@ -1058,6 +1102,25 @@ async function boot() {
     editMenu(e);
   });
   document.addEventListener('dragstart', (e) => { if (!e.target.closest?.('[draggable="true"]')) e.preventDefault(); });
+  // .md / .txt files (or folders) dropped from outside: imported next to the open note
+  const filesDrag = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+  let dragDepth = 0;
+  document.addEventListener('dragenter', (e) => { if (filesDrag(e) && !document.querySelector('.overlay')) { dragDepth++; document.body.classList.add('drop-files'); } });
+  document.addEventListener('dragleave', (e) => { if (filesDrag(e) && --dragDepth <= 0) { dragDepth = 0; document.body.classList.remove('drop-files'); } });
+  document.addEventListener('dragover', (e) => {
+    if (!filesDrag(e)) return;
+    e.preventDefault(); // otherwise the webview would open the file itself
+    e.dataTransfer.dropEffect = document.querySelector('.overlay') ? 'none' : 'copy';
+  });
+  document.addEventListener('drop', (e) => {
+    dragDepth = 0;
+    document.body.classList.remove('drop-files');
+    if (!filesDrag(e)) return;
+    e.preventDefault();
+    if (document.querySelector('.overlay')) return;
+    const v = cur();
+    importFiles(droppedFiles(e.dataTransfer), v ? dirOf(v.rel) : '');
+  });
 
   startAutoSync();
   if (S.settings.sync_on_start !== false && S.settings.targets.some((x) => x.enabled)) setTimeout(() => { lastAuto = Date.now(); syncer.syncAll(); }, 1500);
