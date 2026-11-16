@@ -420,7 +420,7 @@ function renderToolbar() {
   const sy = syncSummary();
   const syncing = syncer.isRunning();
   el.replaceChildren(
-    h('div.repo-title', h('span.rn', v ? v.title() : 'NoteStar'),
+    h('div.repo-title', { title: v ? v.rel : '' }, h('span.rn', v ? v.title() : 'NoteStar'),
       h('span.rb', icon(v ? 'folder' : 'star'), v ? (dirOf(v.rel) || t('Jegyzetek')) : t('Jegyzetek szinkronban'))),
     h('div.tb-sep'),
     tb(t('Új jegyzet'), 'newNote', () => newNote(v ? dirOf(v.rel) : ''), { title: t('Új jegyzet (Ctrl+N)') }),
