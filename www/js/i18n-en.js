@@ -114,7 +114,7 @@ export const EN = {
   'Egyszerű jegyzetek, szinkronban minden gépeden – OneDrive, Dropbox, WebDAV vagy bármely mappa.': 'Plain notes, in sync on all your computers – OneDrive, Dropbox, WebDAV or any folder.',
   'Weboldal': 'Website',
   'Rust + Tauri 2. A GitStar testvérprogramja (GitStar, FtpStar, DiffStar). AI: Anthropic Claude (API vagy Claude Code CLI) vagy DeepSeek.': 'Rust + Tauri 2. A sibling of GitStar (GitStar, FtpStar, DiffStar). AI: Anthropic Claude (API or Claude Code CLI) or DeepSeek.',
-  'A NoteStar ingyenes (freeware). Ha hasznos neked, egy kis adománnyal támogathatod a fejlesztést. Köszönöm!': 'NoteStar is free (freeware). If you find it useful, a small donation supports its development. Thank you!',
+  'A NoteStar ingyenes, MIT-licencű. Ha hasznos neked, egy kis adománnyal támogathatod a fejlesztést. Köszönöm!': 'NoteStar is free and MIT-licensed. If you find it useful, a small donation supports its development. Thank you!',
   'Frissítések keresése': 'Check for updates',
   'Beállítások mappa': 'Settings folder',
   'Másolás': 'Copy',
