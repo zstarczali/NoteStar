@@ -1,6 +1,16 @@
 NoteStar - What's new
 =====================
 
+0.3.1
+-----
+- Starred notes: a star at the end of a note in the tree (shown when
+  the mouse is over it, always shown on starred notes), in the head of
+  the open note, in the right-click menu and with Ctrl+D. The starred
+  notes are listed in a Starred group on top of the tree; renaming and
+  moving keep the star.
+- Fixed: after dropping files onto the notes tree its dashed drop frame
+  stayed on.
+
 0.3.0
 -----
 - Better search. In every note (Ctrl+Shift+F): all matching lines of

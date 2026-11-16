@@ -410,4 +410,13 @@ export const EN = {
   'Bezárás (Esc)': 'Close (Esc)',
   '{0} jegyzet importálva': '{0} notes imported',
   'Nem importálva ({0}):': 'Not imported ({0}):',
+  'Csillagozva: {0}': 'Starred: {0}',
+  'Csillag levéve: {0}': 'Star removed: {0}',
+  'Csillag levétele (Ctrl+D)': 'Remove the star (Ctrl+D)',
+  'Csillagozás (Ctrl+D)': 'Star (Ctrl+D)',
+  'Csillag levétele': 'Remove the star',
+  'Csillagozás': 'Star',
+  'Csillagozott jegyzetek (Ctrl+D a nyitott jegyzeten)': 'Starred notes (Ctrl+D on the open note)',
+  'Csillagozott': 'Starred',
+  'Megjelenítés a fában': 'Show in the tree',
 };
