@@ -1,6 +1,13 @@
 NoteStar - What's new
 =====================
 
+0.3.3
+-----
+- When the note tabs do not fit in the window, the ones that fit
+  are shown (the active one always) and a "v N" button after them
+  lists the other notes: pick one from its menu to switch to it.
+  The tab bar follows the window width when it is resized.
+
 0.3.2
 -----
 - The name of the open note in the toolbar is at most 240 pixels wide:

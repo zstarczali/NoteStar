@@ -5,6 +5,7 @@ export const EN = {
   'Mentés sikertelen': 'Save failed',
   'A(z) „{0}” nem menthető. Bezárod mentés nélkül?': '"{0}" cannot be saved. Close it without saving?',
   'Bezárás': 'Close',
+  'További fülek: {0}': 'More tabs: {0}',
   'Mégse': 'Cancel',
   'Új jegyzet': 'New note',
   'Cím (a(z) „{0}” mappában)': 'Title (in folder "{0}")',
