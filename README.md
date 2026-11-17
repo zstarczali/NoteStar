@@ -32,7 +32,7 @@
 
 NoteStar keeps plain text / Markdown notes in sync between your computers through **OneDrive, Dropbox, WebDAV or any synced folder**, with a **Tauri 2 and Rust** backend. It is the sibling of [GitStar](https://github.com/zstarczali/GitStar), [FtpStar](https://github.com/zstarczali/FtpStar) and [DiffStar](https://github.com/zstarczali/DiffStar) and shares their themes, dialogs and AI setup.
 
-Current version **0.3.2**. See [What's new](whatsnew.txt) for the release history.
+Current version **0.3.3**. See [What's new](whatsnew.txt) for the release history.
 
 ## Features
 

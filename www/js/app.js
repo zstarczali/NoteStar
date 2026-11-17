@@ -2,7 +2,7 @@
 // AI panel, about, self-update and the sync schedule. Notes: notes.js, sync: sync.js.
 
 import {
-  invoke, h, icon, toast, modal, confirmDlg, contextMenu, debounce, basename,
+  invoke, h, icon, toast, modal, confirmDlg, contextMenu, fitTabs, debounce, basename,
   initUiState, uiGet, uiSet, editMenu, splitter, relTime,
 } from './util.js';
 import { t, setLang, getLang } from './i18n.js';
@@ -399,6 +399,7 @@ function renderTabs() {
     h('button.x', { title: t('Bezárás'), on: { click: (e) => { e.stopPropagation(); askCloseTab(i); } } }, icon('close')))),
     h('button.tab-add', { title: t('Új jegyzet (Ctrl+N)'), on: { click: () => newNote(cur() ? dirOf(cur().rel) : '') } }, icon('plus')),
   );
+  fitTabs(el, S.active, (i) => ({ label: S.tabs[i].title(), icon: conflictOriginal(S.tabs[i].rel) ? 'warnTri' : 'note', action: () => switchTab(i) }));
 }
 
 function tb(label, ic, action, { disabled, title, cls = '', badge } = {}) {
