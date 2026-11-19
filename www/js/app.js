@@ -7,7 +7,7 @@ import {
 } from './util.js';
 import { t, setLang, getLang } from './i18n.js';
 import { aiUsageInit, aiUsageItem } from './aiusage.js';
-import { NoteView, createSidebar, forgetImages, mdRender, dirOf, stemOf, extOf, joinRel, conflictOriginal, droppedFiles, isImageName, toggleStar, onStars, retargetStars, dropStars } from './notes.js';
+import { NoteView, createSidebar, forgetImages, mdRender, dirOf, stemOf, extOf, joinRel, conflictOriginal, droppedFiles, isImageName, toggleStar, onStars, retargetStars, dropStars, loadStars } from './notes.js';
 import { createSyncer, syncSettingsPane } from './sync.js';
 
 // ───────────────────────── state ─────────────────────────
@@ -104,6 +104,7 @@ const syncer = createSyncer({
   setBusy: (on, label) => setBusy(on, label),
   status: (text) => { S.syncText = text; renderStatusbar(); },
   after: async (reports) => {
+    await loadStars(); // stars set on the other machines
     const entries = await sidebar.refresh();
     const exists = new Set(entries.filter((e) => !e.dir).map((e) => e.rel));
     // notes deleted by the sync: their tabs close (unless there are edits to keep)
@@ -876,6 +877,7 @@ async function settingsDlg(startTab) {
     S.active = -1;
     S.notesDir = newDir;
     persistSession();
+    await loadStars();
   }
   applyLang();
   applyTheme();
@@ -1007,6 +1009,7 @@ async function boot() {
   if (zoomNow() !== 1) applyZoom();
   matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => { if (S.settings.theme === 'system') { applyTheme(); renderAll(); } });
   S.notesDir = await invoke('notes_dir').catch(() => '');
+  await loadStars();
   splitter(document.getElementById('side-split'), document.getElementById('sidebar'), { min: 180, max: 640, key: 'ns.sideW' });
   await sidebar.refresh();
   renderAll();
@@ -1032,6 +1035,7 @@ async function boot() {
   window.addEventListener('focus', async () => {
     if (Date.now() - lastFocus < 1000) return;
     lastFocus = Date.now();
+    await loadStars();
     await sidebar.refresh();
     forgetImages();
     for (const v of S.tabs) await v.checkExternal();

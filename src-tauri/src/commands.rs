@@ -588,3 +588,29 @@ pub fn save_window_state_later(app: &tauri::AppHandle) {
         let _ = app.run_on_main_thread(move || save_window_state(&main));
     });
 }
+
+// ── starred notes (a file in the notes folder, so they sync) ──
+
+#[tauri::command]
+pub async fn stars_list(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let root = state.notes_dir();
+    blocking(move || Ok(crate::stars::list(&root))).await
+}
+
+/// `changes`: `[path, starred]` pairs; returns the starred notes after it.
+#[tauri::command]
+pub async fn stars_set(state: State<'_, AppState>, changes: Vec<(String, bool)>) -> Result<Vec<String>, String> {
+    let root = state.notes_dir();
+    blocking(move || crate::stars::set(&root, &changes)).await
+}
+
+/// Stars an older version kept on this machine only.
+#[tauri::command]
+pub async fn stars_import(state: State<'_, AppState>, rels: Vec<String>) -> Result<Vec<String>, String> {
+    let root = state.notes_dir();
+    blocking(move || {
+        crate::stars::import(&root, &rels)?;
+        Ok(crate::stars::list(&root))
+    })
+    .await
+}

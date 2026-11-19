@@ -13,6 +13,7 @@
 use crate::notes;
 use crate::remote::{Remote, RemoteFile};
 use crate::settings::{tr, Target};
+use crate::stars;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -133,7 +134,12 @@ struct Local {
 
 fn scan_local(root: &Path, exts: &[String], base: &HashMap<String, Base>) -> Result<HashMap<String, Local>, String> {
     let mut out = HashMap::new();
-    for e in notes::list(root, exts)? {
+    let mut files = notes::list(root, exts)?;
+    // the starred notes travel with the notes
+    if let Ok(m) = std::fs::metadata(root.join(stars::FILE)) {
+        files.push(notes::Entry { rel: stars::FILE.into(), dir: false, size: m.len(), mtime: notes::mtime_ms(&m), image: false });
+    }
+    for e in files {
         if e.dir {
             continue;
         }
@@ -261,7 +267,7 @@ async fn run_inner(r: &Run<'_>) -> Result<Report, String> {
         .list()
         .await?
         .into_iter()
-        .filter(|f| notes::is_note(f.rel.rsplit('/').next().unwrap_or(&f.rel), r.exts))
+        .filter(|f| stars::is_file(&f.rel) || notes::is_note(f.rel.rsplit('/').next().unwrap_or(&f.rel), r.exts))
         .map(|f| (key_of(&f.rel), f))
         .collect();
 
@@ -335,7 +341,11 @@ async fn run_inner(r: &Run<'_>) -> Result<Report, String> {
                     }
                     let data = remote.get(&rm.rel).await?;
                     let p = notes::safe_join(root, &rel)?;
-                    notes::write_atomic(&p, &data)?;
+                    if stars::is_file(&rel) {
+                        stars::write_downloaded(root, &data)?;
+                    } else {
+                        notes::write_atomic(&p, &data)?;
+                    }
                     let m = std::fs::metadata(&p).map_err(|e| e.to_string())?;
                     st.files.insert(k.clone(), Base { rel: rel.clone(), hash: hash(&data), rev: rm.rev.clone(), mtime: notes::mtime_ms(&m), size: m.len() });
                     changed.insert(rel);
@@ -363,6 +373,15 @@ async fn run_inner(r: &Run<'_>) -> Result<Report, String> {
                     let (l, rm) = (&local[k], &remote_files[k]);
                     (r.progress)(done, total, &l.rel);
                     let theirs = remote.get(&rm.rel).await?;
+                    if stars::is_file(&l.rel) {
+                        // starred on several machines: merge, never a conflict copy
+                        let merged = stars::merge_local(root, &theirs)?;
+                        let m = std::fs::metadata(root.join(&l.rel)).map_err(|e| e.to_string())?;
+                        let rev = if merged == theirs { rm.rev.clone() } else { remote.put(&l.rel, merged.clone()).await? };
+                        st.files.insert(k.clone(), Base { rel: l.rel.clone(), hash: hash(&merged), rev, mtime: notes::mtime_ms(&m), size: m.len() });
+                        changed.insert(l.rel.clone());
+                        return Ok(());
+                    }
                     let p = root.join(&l.rel);
                     let m = std::fs::metadata(&p).map_err(|e| format!("{}: {e}", l.rel))?;
                     let ours = std::fs::read(&p).map_err(|e| format!("{}: {e}", l.rel))?;
@@ -497,6 +516,34 @@ mod tests {
             assert!(res.unwrap_err().starts_with("SYNC_MASS_DELETE:20"));
             assert!(a.join("n0.md").exists());
             for d in [a, b, st] {
+                let _ = std::fs::remove_dir_all(d);
+            }
+        });
+    }
+
+    #[test]
+    fn stars_merge_between_machines() {
+        tauri::async_runtime::block_on(async {
+            let (a, c, b, sa, sc) = (tmp("sa"), tmp("sc"), tmp("sb"), tmp("ssa"), tmp("ssc"));
+            let t = target(&b);
+            put(&a, "x.md", "x");
+            put(&a, "y.md", "y");
+            crate::stars::set(&a, &[("x.md".into(), true)]).unwrap();
+            sync(&a, &sa, &t).await;
+            // the second machine stars another note before its first sync
+            crate::stars::set(&c, &[("y.md".into(), true)]).unwrap();
+            let r = sync(&c, &sc, &t).await;
+            assert!(r.conflicts.is_empty());
+            assert_eq!(crate::stars::list(&c), vec!["x.md", "y.md"]);
+            // the first machine removes a star, the second gets it
+            sync(&a, &sa, &t).await;
+            assert_eq!(crate::stars::list(&a), vec!["x.md", "y.md"]);
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            crate::stars::set(&a, &[("x.md".into(), false)]).unwrap();
+            sync(&a, &sa, &t).await;
+            sync(&c, &sc, &t).await;
+            assert_eq!(crate::stars::list(&c), vec!["y.md"]);
+            for d in [a, b, c, sa, sc] {
                 let _ = std::fs::remove_dir_all(d);
             }
         });

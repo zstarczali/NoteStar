@@ -150,7 +150,7 @@ impl WebDav {
             for it in items {
                 let Some(rel) = it.path.strip_prefix(&base_path) else { continue };
                 let rel = rel.trim_matches('/').to_string();
-                if rel.is_empty() || rel == rel_dir || rel.split('/').any(crate::notes::ignored) {
+                if rel.is_empty() || rel == rel_dir || crate::notes::ignored_rel(&rel) {
                     continue;
                 }
                 if it.dir {
