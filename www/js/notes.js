@@ -94,39 +94,66 @@ const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
 
 // ───────────────────────── starred notes ─────────────────────────
 
-let starSet = null;
+// Kept in a file of the notes folder by the backend, so the sync carries them
+// to the other machines (marks merge, the later one wins).
+let starSet = new Set();
 const starListeners = [];
-const stars = () => {
-  if (!starSet) { try { starSet = new Set(JSON.parse(uiGet('ns.stars') || '[]')); } catch { starSet = new Set(); } }
-  return starSet;
+const stars = () => starSet;
+const notifyStars = () => { for (const f of starListeners) f(); };
+const applyStars = (list) => {
+  const next = new Set(list || []);
+  if (next.size === starSet.size && [...next].every((r) => starSet.has(r))) return;
+  starSet = next;
+  notifyStars();
 };
-const saveStars = () => { uiSet('ns.stars', JSON.stringify([...stars()])); for (const f of starListeners) f(); };
+/** Writes star changes ([rel, starred] pairs); the local set changes at once. */
+const saveStars = (changes) => {
+  if (!changes.length) return;
+  notifyStars();
+  invoke('stars_set', { changes }).then(applyStars).catch((e) => toast(String(e), 'err'));
+};
+/** Reads the stars of the notes folder (start, after a sync, another folder). */
+export async function loadStars() {
+  try {
+    // stars of 0.3.1–0.3.3 were kept on this machine only: move them into the file
+    const old = uiGet('ns.stars');
+    if (old) {
+      let rels = [];
+      try { rels = JSON.parse(old); } catch { /* none */ }
+      applyStars(await invoke('stars_import', { rels }));
+      uiSet('ns.stars', '');
+    } else applyStars(await invoke('stars_list'));
+  } catch (e) { console.warn('stars:', e); }
+}
 export const isStarred = (rel) => !!rel && stars().has(rel);
 export const starredList = () => [...stars()];
 export const onStars = (f) => starListeners.push(f);
 /** Star / unstar a note (Ctrl+D); true when it is starred now. */
 export function toggleStar(rel) {
   const s = stars();
-  if (s.has(rel)) s.delete(rel); else s.add(rel);
-  saveStars();
-  toast(s.has(rel) ? t('Csillagozva: {0}', stemOf(rel)) : t('Csillag levéve: {0}', stemOf(rel)), 'ok', 1400);
-  return s.has(rel);
+  const on = !s.has(rel);
+  if (on) s.add(rel); else s.delete(rel);
+  saveStars([[rel, on]]);
+  toast(on ? t('Csillagozva: {0}', stemOf(rel)) : t('Csillag levéve: {0}', stemOf(rel)), 'ok', 1400);
+  return on;
 }
 /** A renamed / moved note or folder keeps its stars. */
 export function retargetStars(from, to, isDir) {
   const s = stars();
-  let ch = false;
+  const ch = [];
   for (const r of [...s]) {
-    if (r === from) { s.delete(r); s.add(to); ch = true; }
-    else if (isDir && r.startsWith(from + '/')) { s.delete(r); s.add(to + r.slice(from.length)); ch = true; }
+    const n = r === from ? to : isDir && r.startsWith(from + '/') ? to + r.slice(from.length) : null;
+    if (n === null) continue;
+    s.delete(r); s.add(n);
+    ch.push([r, false], [n, true]);
   }
-  if (ch) saveStars();
+  saveStars(ch);
 }
 export function dropStars(rel, isDir) {
   const s = stars();
-  let ch = false;
-  for (const r of [...s]) if (r === rel || (isDir && r.startsWith(rel + '/'))) { s.delete(r); ch = true; }
-  if (ch) saveStars();
+  const ch = [];
+  for (const r of [...s]) if (r === rel || (isDir && r.startsWith(rel + '/'))) { s.delete(r); ch.push([r, false]); }
+  saveStars(ch);
 }
 const starBtn = (rel, cls = '') => h('button.star-btn' + cls + (isStarred(rel) ? '.on' : ''), {
   type: 'button', title: isStarred(rel) ? t('Csillag levétele (Ctrl+D)') : t('Csillagozás (Ctrl+D)'),

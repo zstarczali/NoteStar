@@ -1,6 +1,15 @@
 NoteStar - What's new
 =====================
 
+0.3.4
+-----
+- Starred notes now sync between machines: the stars are kept in a
+  hidden file of the notes folder (.notestar-stars.json) that the sync
+  carries along. Stars set or removed on different machines are merged
+  note by note (the later change wins), so no conflict copy is made.
+  The stars kept on this machine by 0.3.1-0.3.3 are moved into the
+  file at the first start. Every machine needs this version.
+
 0.3.3
 -----
 - When the note tabs do not fit in the window, the ones that fit

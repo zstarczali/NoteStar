@@ -180,7 +180,7 @@ impl Dropbox {
                 // path_display keeps the letter case of the file name; cut by char count of the root
                 let cut = self.root.chars().count();
                 let rel: String = display.chars().skip(cut).collect::<String>().trim_start_matches('/').to_string();
-                if rel.is_empty() || rel.split('/').any(crate::notes::ignored) {
+                if rel.is_empty() || crate::notes::ignored_rel(&rel) {
                     continue;
                 }
                 let rev = e["content_hash"].as_str().or(e["rev"].as_str()).unwrap_or_default().to_string();

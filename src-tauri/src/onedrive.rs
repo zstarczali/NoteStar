@@ -208,10 +208,13 @@ impl OneDrive {
                 let v: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
                 for it in v["value"].as_array().cloned().unwrap_or_default() {
                     let name = it["name"].as_str().unwrap_or_default();
-                    if name.is_empty() || crate::notes::ignored(name) {
+                    if name.is_empty() {
                         continue;
                     }
                     let rel = if rel_dir.is_empty() { name.to_string() } else { format!("{rel_dir}/{name}") };
+                    if crate::notes::ignored_rel(&rel) {
+                        continue;
+                    }
                     if it.get("folder").is_some() {
                         dirs.push(rel);
                     } else if it.get("file").is_some() {

@@ -109,6 +109,10 @@ impl Remote {
                             out.push(RemoteFile { rel: e.rel, rev: format!("{}-{}", e.mtime, e.size) });
                         }
                     }
+                    // hidden, so the listing skipped it
+                    if let Ok(m) = std::fs::metadata(root.join(crate::stars::FILE)) {
+                        out.push(RemoteFile { rel: crate::stars::FILE.into(), rev: format!("{}-{}", notes::mtime_ms(&m), m.len()) });
+                    }
                     Ok(out)
                 })
                 .await

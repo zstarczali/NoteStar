@@ -6,6 +6,7 @@ mod notes;
 mod onedrive;
 mod remote;
 mod settings;
+mod stars;
 mod sync;
 mod update;
 mod usage;
@@ -114,6 +115,9 @@ pub fn run() {
             commands::import_image,
             commands::image_data,
             commands::sync_run,
+            commands::stars_list,
+            commands::stars_set,
+            commands::stars_import,
             commands::sync_info,
             commands::target_test,
             commands::onedrive_device_start,

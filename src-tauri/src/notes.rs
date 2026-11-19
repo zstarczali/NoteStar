@@ -18,6 +18,11 @@ pub fn ignored(name: &str) -> bool {
         || name == "Icon\r"
 }
 
+/// A path the remote listings skip (the stars file is hidden but synced).
+pub fn ignored_rel(rel: &str) -> bool {
+    !crate::stars::is_file(rel) && rel.split('/').any(ignored)
+}
+
 /// Is `name` a note (by extension)? `exts` empty = every file.
 pub fn is_note(name: &str, exts: &[String]) -> bool {
     if ignored(name) {
