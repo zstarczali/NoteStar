@@ -1,6 +1,6 @@
 [package]
 name = "notestar"
-version = "0.3.4"
+version = "0.3.5"
 description = "NoteStar - plain notes kept in sync with OneDrive, Dropbox, WebDAV or any synced folder"
 edition = "2021"
 license = "MIT"
