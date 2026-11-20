@@ -1,6 +1,11 @@
 NoteStar - What's new
 =====================
 
+0.3.5
+-----
+- Note tabs can be reordered by dragging them with the mouse.
+  The new order is kept for the next start.
+
 0.3.4
 -----
 - Starred notes now sync between machines: the stars are kept in a

@@ -1,7 +1,7 @@
 NoteStar Installation Guide
 ===========================
 
-Version 0.3.4
+Version 0.3.5
 -------------
 Full Markdown with a formatting toolbar and a cheat sheet, and pictures:
 paste, drop or insert them, resize them in the preview, and find them in

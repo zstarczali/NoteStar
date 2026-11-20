@@ -2,7 +2,7 @@
 // AI panel, about, self-update and the sync schedule. Notes: notes.js, sync: sync.js.
 
 import {
-  invoke, h, icon, toast, modal, confirmDlg, contextMenu, fitTabs, debounce, basename,
+  invoke, h, icon, toast, modal, confirmDlg, contextMenu, fitTabs, dragTab, debounce, basename,
   initUiState, uiGet, uiSet, editMenu, splitter, relTime,
 } from './util.js';
 import { t, setLang, getLang } from './i18n.js';
@@ -380,6 +380,14 @@ function renderAll() {
   renderStatusbar();
 }
 
+/** Drag & drop reorder of the tabs; the active tab stays active. */
+function moveTab(from, to) {
+  const active = cur();
+  S.tabs.splice(to, 0, ...S.tabs.splice(from, 1));
+  S.active = S.tabs.indexOf(active);
+  persistSession(); renderTabs();
+}
+
 function renderTabs() {
   const el = document.getElementById('tabs');
   el.replaceChildren(
@@ -387,6 +395,7 @@ function renderTabs() {
       title: v.tooltip(),
       on: {
         mousedown: (e) => { if (e.button === 1) { e.preventDefault(); askCloseTab(i); } },
+        pointerdown: (e) => dragTab(e, i, moveTab),
         click: () => switchTab(i),
         contextmenu: (e) => contextMenu(e, [
           { label: t('Átnevezés…'), icon: 'rename', key: 'F2', action: () => renameEntry(v.rel, false) },
