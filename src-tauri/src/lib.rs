@@ -1,5 +1,6 @@
 mod ai;
 mod claude_cli;
+mod colors;
 mod commands;
 mod dropbox;
 mod notes;
@@ -118,6 +119,8 @@ pub fn run() {
             commands::stars_list,
             commands::stars_set,
             commands::stars_import,
+            commands::colors_list,
+            commands::colors_set,
             commands::sync_info,
             commands::target_test,
             commands::onedrive_device_start,

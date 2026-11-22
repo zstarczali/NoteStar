@@ -1,6 +1,18 @@
 NoteStar - What's new
 =====================
 
+0.3.6
+-----
+- Notes can be marked with a colour: red, orange, yellow, green, blue,
+  purple or gray. Pick it from the row of dots in the right-click menu
+  of a note, or with the round button next to the star above the
+  editor. The tree shows the colour on the note's icon and as a stripe
+  on the left, the tab as a dot before the name.
+- The colours sync between machines like the stars, in their own hidden
+  file of the notes folder (.notestar-colors.json); colours changed on
+  different machines are merged note by note (the later change wins).
+  A renamed or moved note keeps its colour.
+
 0.3.5
 -----
 - Note tabs can be reordered by dragging them with the mouse.

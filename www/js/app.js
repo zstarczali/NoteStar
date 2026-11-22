@@ -7,7 +7,7 @@ import {
 } from './util.js';
 import { t, setLang, getLang } from './i18n.js';
 import { aiUsageInit, aiUsageItem } from './aiusage.js';
-import { NoteView, createSidebar, forgetImages, mdRender, dirOf, stemOf, extOf, joinRel, conflictOriginal, droppedFiles, isImageName, toggleStar, onStars, retargetStars, dropStars, loadStars } from './notes.js';
+import { NoteView, createSidebar, forgetImages, mdRender, dirOf, stemOf, extOf, joinRel, conflictOriginal, droppedFiles, isImageName, toggleStar, onStars, retargetStars, dropStars, loadMarks, onColors, retargetColors, dropColors, noteColor } from './notes.js';
 import { createSyncer, syncSettingsPane } from './sync.js';
 
 // ───────────────────────── state ─────────────────────────
@@ -104,7 +104,7 @@ const syncer = createSyncer({
   setBusy: (on, label) => setBusy(on, label),
   status: (text) => { S.syncText = text; renderStatusbar(); },
   after: async (reports) => {
-    await loadStars(); // stars set on the other machines
+    await loadMarks(); // stars and colours set on the other machines
     const entries = await sidebar.refresh();
     const exists = new Set(entries.filter((e) => !e.dir).map((e) => e.rel));
     // notes deleted by the sync: their tabs close (unless there are edits to keep)
@@ -279,6 +279,7 @@ function retarget(from, to, isDir) {
     else if (isDir && v.rel.startsWith(from + '/')) v.renamed(to + v.rel.slice(from.length));
   }
   retargetStars(from, to, isDir);
+  retargetColors(from, to, isDir);
   persistSession();
 }
 
@@ -323,6 +324,7 @@ async function deleteEntry(rel, isDir) {
   try {
     await invoke('delete_entry', { rel });
     dropStars(rel, isDir);
+    dropColors(rel, isDir);
     for (let i = S.tabs.length - 1; i >= 0; i--) if (S.tabs[i].rel === rel || (isDir && S.tabs[i].rel.startsWith(rel + '/'))) closeTab(i, true);
     await sidebar.refresh();
     renderAll();
@@ -405,7 +407,7 @@ function renderTabs() {
           { label: t('A többi bezárása'), action: async () => { for (let k = S.tabs.length - 1; k >= 0; k--) if (S.tabs[k] !== v) await closeTab(k); } },
         ]),
       },
-    }, icon(conflictOriginal(v.rel) ? 'warnTri' : 'note'), h('span.name', v.title()), v.isDirty() ? h('span.tab-dirty', { title: t('Nem mentett') }, '●') : null,
+    }, icon(conflictOriginal(v.rel) ? 'warnTri' : 'note'), noteColor(v.rel) ? h('span.tab-color', { dataset: { color: noteColor(v.rel) } }) : null, h('span.name', v.title()), v.isDirty() ? h('span.tab-dirty', { title: t('Nem mentett') }, '●') : null,
     h('button.x', { title: t('Bezárás'), on: { click: (e) => { e.stopPropagation(); askCloseTab(i); } } }, icon('close')))),
     h('button.tab-add', { title: t('Új jegyzet (Ctrl+N)'), on: { click: () => newNote(cur() ? dirOf(cur().rel) : '') } }, icon('plus')),
   );
@@ -886,7 +888,7 @@ async function settingsDlg(startTab) {
     S.active = -1;
     S.notesDir = newDir;
     persistSession();
-    await loadStars();
+    await loadMarks();
   }
   applyLang();
   applyTheme();
@@ -1018,7 +1020,7 @@ async function boot() {
   if (zoomNow() !== 1) applyZoom();
   matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => { if (S.settings.theme === 'system') { applyTheme(); renderAll(); } });
   S.notesDir = await invoke('notes_dir').catch(() => '');
-  await loadStars();
+  await loadMarks();
   splitter(document.getElementById('side-split'), document.getElementById('sidebar'), { min: 180, max: 640, key: 'ns.sideW' });
   await sidebar.refresh();
   renderAll();
@@ -1044,7 +1046,7 @@ async function boot() {
   window.addEventListener('focus', async () => {
     if (Date.now() - lastFocus < 1000) return;
     lastFocus = Date.now();
-    await loadStars();
+    await loadMarks();
     await sidebar.refresh();
     forgetImages();
     for (const v of S.tabs) await v.checkExternal();
@@ -1145,6 +1147,7 @@ async function boot() {
 
   // the star in the editor head follows the stars changed anywhere
   onStars(() => { for (const v of S.tabs) if (v.root) v.drawHead(); });
+  onColors(() => { for (const v of S.tabs) if (v.root) v.drawHead(); renderTabs(); });
   startAutoSync();
   if (S.settings.sync_on_start !== false && S.settings.targets.some((x) => x.enabled)) setTimeout(() => { lastAuto = Date.now(); syncer.syncAll(); }, 1500);
   if (S.settings.update_check !== false) setTimeout(() => checkForAppUpdate({ silent: true }), 4000);

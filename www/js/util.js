@@ -376,6 +376,15 @@ export function contextMenu(e, items) {
     if (!it) continue;
     if (it === '-') { m.append(h('div.ms')); continue; }
     if (it.header) { m.append(h('div.mh', it.header)); continue; }
+    // a row of colour dots: { swatches: [[name, label]], value, none, pick(name | '') }
+    if (it.swatches) {
+      const dot = (name, label) => h('button.msw' + (it.value === name ? '.on' : ''), {
+        type: 'button', title: label, dataset: name ? { color: name } : {},
+        on: { click: () => { closeMenu(); it.pick(name); } },
+      }, name ? null : icon('close'));
+      m.append(h('div.mswatches', dot('', it.none || ''), ...it.swatches.map(([n, l]) => dot(n, l))));
+      continue;
+    }
     m.append(h('div.mi' + (it.disabled ? '.dis' : '') + (it.danger ? '.danger' : ''), {
       on: { click: () => { if (it.disabled) return; closeMenu(); it.action(); } },
     }, it.icon ? icon(it.icon) : h('span', { style: { width: '16px' } }), it.label, it.key ? h('span.k', it.key) : null));

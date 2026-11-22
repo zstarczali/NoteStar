@@ -32,13 +32,14 @@
 
 NoteStar keeps plain text / Markdown notes in sync between your computers through **OneDrive, Dropbox, WebDAV or any synced folder**, with a **Tauri 2 and Rust** backend. It is the sibling of [GitStar](https://github.com/zstarczali/GitStar), [FtpStar](https://github.com/zstarczali/FtpStar) and [DiffStar](https://github.com/zstarczali/DiffStar) and shares their themes, dialogs and AI setup.
 
-Current version **0.3.5**. See [What's new](whatsnew.txt) for the release history.
+Current version **0.3.6**. See [What's new](whatsnew.txt) for the release history.
 
 ## Features
 
 - **Plain files** — Every note is an ordinary `.md` / `.txt` file in the notes folder (default `Documents/NoteStar`), in any folder structure. Any other editor can open them.
 - **Editor** — Edit, split (editor + live preview) or preview mode; autosave; list continuation on Enter, Tab / Shift+Tab indenting list items, Ctrl+B / Ctrl+I, find in note, clickable task boxes (`- [ ]`) in the preview, links opened in the browser.
 - **Notes tree** — Folders, sorting by name or last change, drag and drop to move notes and folders, rename, delete to the recycle bin, show in folder, open with another program.
+- **Stars and colours** — Star notes (Ctrl+D) to keep them on top of the tree, and mark them with one of seven colours. Both sync to your other machines.
 - **Full-text search** in every note (Ctrl+Shift+F) with highlighted snippets; a hit opens at its line.
 - **Sync targets** (any number, each two-way):
   - **Folder** — any folder, typically the folder of a cloud desktop client (OneDrive, Dropbox, Google Drive, iCloud — detected automatically), a network drive or a USB disk.
