@@ -161,6 +161,70 @@ const starBtn = (rel, cls = '') => h('button.star-btn' + cls + (isStarred(rel) ?
 }, icon('star'));
 const starMenuItem = (rel) => ({ label: isStarred(rel) ? t('Csillag levétele') : t('Csillagozás'), icon: 'star', key: 'Ctrl+D', action: () => toggleStar(rel) });
 
+// ───────────────────────── note colours ─────────────────────────
+
+// Like the stars: a file of the notes folder (.notestar-colors.json), merged mark by mark.
+/** The colours in menu order: [name, label]. The CSS maps a name to its shade. */
+export const NOTE_COLORS = () => [['red', t('Piros')], ['orange', t('Narancs')], ['yellow', t('Sárga')], ['green', t('Zöld')], ['blue', t('Kék')], ['purple', t('Lila')], ['gray', t('Szürke')]];
+let colorMap = new Map();
+const colorListeners = [];
+const notifyColors = () => { for (const f of colorListeners) f(); };
+const applyColors = (obj) => {
+  const next = new Map(Object.entries(obj || {}));
+  if (next.size === colorMap.size && [...next].every(([r, c]) => colorMap.get(r) === c)) return;
+  colorMap = next;
+  notifyColors();
+};
+/** Writes colour changes ([rel, colour] pairs, '' = none); the local map changes at once. */
+const saveColors = (changes) => {
+  if (!changes.length) return;
+  notifyColors();
+  invoke('colors_set', { changes }).then(applyColors).catch((e) => toast(String(e), 'err'));
+};
+export async function loadColors() {
+  try { applyColors(await invoke('colors_list')); } catch (e) { console.warn('colors:', e); }
+}
+/** The stars and the colours of the notes folder (start, after a sync, another folder). */
+export async function loadMarks() {
+  await loadStars();
+  await loadColors();
+}
+export const noteColor = (rel) => (rel && colorMap.get(rel)) || '';
+export const onColors = (f) => colorListeners.push(f);
+export function setColor(rel, c) {
+  if (noteColor(rel) === c) return;
+  if (c) colorMap.set(rel, c); else colorMap.delete(rel);
+  saveColors([[rel, c]]);
+}
+/** A renamed / moved note or folder keeps its colours. */
+export function retargetColors(from, to, isDir) {
+  const ch = [];
+  for (const [r, c] of [...colorMap]) {
+    const n = r === from ? to : isDir && r.startsWith(from + '/') ? to + r.slice(from.length) : null;
+    if (n === null) continue;
+    colorMap.delete(r); colorMap.set(n, c);
+    ch.push([r, ''], [n, c]);
+  }
+  saveColors(ch);
+}
+export function dropColors(rel, isDir) {
+  const ch = [];
+  for (const r of [...colorMap.keys()]) if (r === rel || (isDir && r.startsWith(rel + '/'))) { colorMap.delete(r); ch.push([r, '']); }
+  saveColors(ch);
+}
+/** The row of colour dots in a context menu. */
+export const colorMenuItem = (rel) => ({ swatches: NOTE_COLORS(), value: noteColor(rel), none: t('Nincs szín'), pick: (c) => setColor(rel, c) });
+/** `dataset` for an element that shows the note's colour (CSS: [data-color]). */
+const colorData = (rel) => (noteColor(rel) ? { color: noteColor(rel) } : {});
+const colorBtn = (rel) => {
+  const c = noteColor(rel);
+  const label = c ? NOTE_COLORS().find(([n]) => n === c)?.[1] || c : t('Nincs szín');
+  return h('button.color-btn' + (c ? '.on' : ''), {
+    type: 'button', title: t('Szín: {0}', label), dataset: colorData(rel),
+    on: { click: (ev) => { ev.stopPropagation(); const r = ev.currentTarget.getBoundingClientRect(); contextMenu({ preventDefault() {}, stopPropagation() {}, clientX: r.left, clientY: r.bottom + 4 }, [colorMenuItem(rel)]); } },
+  }, h('span.dot'));
+};
+
 // ───────────────────────── sidebar ─────────────────────────
 
 /**
@@ -178,6 +242,7 @@ export function createSidebar(ctx) {
   const saveClosed = () => uiSet('ns.closed', JSON.stringify([...closed]));
   const STARS = '\u0001stars'; // the closed-state key of the starred group
   onStars(() => draw());
+  onColors(() => draw());
 
   const search = h('input.inp.side-search', { type: 'search', placeholder: t('Keresés a jegyzetekben… (Ctrl+Shift+F)'), spellcheck: 'false' });
   const rerun = () => { if (query) runSearch(); else draw(); };
@@ -307,12 +372,13 @@ export function createSidebar(ctx) {
       if (open) {
         for (const rel of starred) {
           rows.push(h('div.trow.tnote.tstarred' + (rel === active ? '.sel' : ''), {
-            style: { '--lvl': 1 }, title: rel,
+            style: { '--lvl': 1 }, title: rel, dataset: colorData(rel),
             on: {
               click: () => ctx.openNote(rel),
               contextmenu: (ev) => contextMenu(ev, [
                 { label: t('Megnyitás'), icon: 'note', action: () => ctx.openNote(rel) },
                 starMenuItem(rel),
+                colorMenuItem(rel),
                 { label: t('Megjelenítés a fában'), icon: 'folderOpen', action: () => { search.value = ''; query = ''; hits = null; api.reveal(rel); } },
               ]),
             },
@@ -371,13 +437,14 @@ export function createSidebar(ctx) {
           const conflict = !!conflictOriginal(e.rel);
           rows.push(h('div.trow.tnote' + (e.rel === active ? '.sel' : '') + (conflict ? '.conflict' : ''), {
             style: { '--lvl': lvl }, title: `${e.rel}\n${t('Módosítva: {0}', relTime(e.mtime / 1000))}`, draggable: 'true',
-            dataset: { rel: e.rel },
+            dataset: { rel: e.rel, ...colorData(e.rel) },
             on: {
               click: () => ctx.openNote(e.rel),
               dragstart: (ev) => { dragRel = e.rel; ev.dataTransfer.setData('text/plain', e.rel); },
               contextmenu: (ev) => contextMenu(ev, [
                 { label: t('Megnyitás'), icon: 'note', action: () => ctx.openNote(e.rel) },
                 starMenuItem(e.rel),
+                colorMenuItem(e.rel),
                 { label: t('Átnevezés…'), icon: 'rename', key: 'F2', action: () => ctx.renameEntry(e.rel, false) },
                 { label: t('Megnyitás külső programmal'), icon: 'open', action: () => ctx.openExternal(e.rel) },
                 { label: t('Megjelenítés a mappában'), icon: 'folderOpen', action: () => ctx.reveal(e.rel) },
@@ -861,6 +928,7 @@ export class NoteView {
       h('div.ed-crumbs', parts.map((p, i) => [i ? h('span.sep', '/') : null, h('span' + (i === parts.length - 1 ? '.last' : ''), i === parts.length - 1 ? stemOf(p) : p)])),
       this.lossy ? h('span.ed-ro', { title: t('A fájl nem UTF-8 kódolású; a sérülés elkerülésére csak olvasható.') }, t('csak olvasható')) : null,
       starBtn(this.rel, '.ed-star'),
+      colorBtn(this.rel),
       h('span.grow'),
       seg);
     // a sync conflict copy: offer the ways out

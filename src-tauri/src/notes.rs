@@ -18,9 +18,17 @@ pub fn ignored(name: &str) -> bool {
         || name == "Icon\r"
 }
 
-/// A path the remote listings skip (the stars file is hidden but synced).
+/// The hidden files synced with the notes: the stars and the colours.
+pub const META_FILES: &[&str] = &[crate::stars::FILE, crate::colors::FILE];
+
+/// Is `rel` one of the synced hidden files?
+pub fn is_meta(rel: &str) -> bool {
+    crate::stars::is_file(rel) || crate::colors::is_file(rel)
+}
+
+/// A path the remote listings skip (the stars and colours files are hidden but synced).
 pub fn ignored_rel(rel: &str) -> bool {
-    !crate::stars::is_file(rel) && rel.split('/').any(ignored)
+    !is_meta(rel) && rel.split('/').any(ignored)
 }
 
 /// Is `name` a note (by extension)? `exts` empty = every file.

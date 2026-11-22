@@ -13,6 +13,7 @@
 use crate::notes;
 use crate::remote::{Remote, RemoteFile};
 use crate::settings::{tr, Target};
+use crate::colors;
 use crate::stars;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -135,9 +136,11 @@ struct Local {
 fn scan_local(root: &Path, exts: &[String], base: &HashMap<String, Base>) -> Result<HashMap<String, Local>, String> {
     let mut out = HashMap::new();
     let mut files = notes::list(root, exts)?;
-    // the starred notes travel with the notes
-    if let Ok(m) = std::fs::metadata(root.join(stars::FILE)) {
-        files.push(notes::Entry { rel: stars::FILE.into(), dir: false, size: m.len(), mtime: notes::mtime_ms(&m), image: false });
+    // the stars and the colours travel with the notes
+    for f in notes::META_FILES {
+        if let Ok(m) = std::fs::metadata(root.join(f)) {
+            files.push(notes::Entry { rel: (*f).into(), dir: false, size: m.len(), mtime: notes::mtime_ms(&m), image: false });
+        }
     }
     for e in files {
         if e.dir {
@@ -267,7 +270,7 @@ async fn run_inner(r: &Run<'_>) -> Result<Report, String> {
         .list()
         .await?
         .into_iter()
-        .filter(|f| stars::is_file(&f.rel) || notes::is_note(f.rel.rsplit('/').next().unwrap_or(&f.rel), r.exts))
+        .filter(|f| notes::is_meta(&f.rel) || notes::is_note(f.rel.rsplit('/').next().unwrap_or(&f.rel), r.exts))
         .map(|f| (key_of(&f.rel), f))
         .collect();
 
@@ -343,6 +346,8 @@ async fn run_inner(r: &Run<'_>) -> Result<Report, String> {
                     let p = notes::safe_join(root, &rel)?;
                     if stars::is_file(&rel) {
                         stars::write_downloaded(root, &data)?;
+                    } else if colors::is_file(&rel) {
+                        colors::write_downloaded(root, &data)?;
                     } else {
                         notes::write_atomic(&p, &data)?;
                     }
@@ -373,9 +378,9 @@ async fn run_inner(r: &Run<'_>) -> Result<Report, String> {
                     let (l, rm) = (&local[k], &remote_files[k]);
                     (r.progress)(done, total, &l.rel);
                     let theirs = remote.get(&rm.rel).await?;
-                    if stars::is_file(&l.rel) {
-                        // starred on several machines: merge, never a conflict copy
-                        let merged = stars::merge_local(root, &theirs)?;
+                    if notes::is_meta(&l.rel) {
+                        // starred or coloured on several machines: merge, never a conflict copy
+                        let merged = if stars::is_file(&l.rel) { stars::merge_local(root, &theirs)? } else { colors::merge_local(root, &theirs)? };
                         let m = std::fs::metadata(root.join(&l.rel)).map_err(|e| e.to_string())?;
                         let rev = if merged == theirs { rm.rev.clone() } else { remote.put(&l.rel, merged.clone()).await? };
                         st.files.insert(k.clone(), Base { rel: l.rel.clone(), hash: hash(&merged), rev, mtime: notes::mtime_ms(&m), size: m.len() });
@@ -438,7 +443,9 @@ mod tests {
     }
 
     fn target(dir: &Path) -> Target {
-        Target { id: "t1".into(), name: "x".into(), kind: "folder".into(), path: dir.to_string_lossy().into_owned(), ..Default::default() }
+        // an id of its own per test: run() refuses a second sync of the same id (SYNC_BUSY), and the tests run in parallel
+        let id = format!("t-{}", dir.file_name().unwrap().to_string_lossy());
+        Target { id, name: "x".into(), kind: "folder".into(), path: dir.to_string_lossy().into_owned(), ..Default::default() }
     }
 
     async fn sync(notes: &Path, state: &Path, t: &Target) -> Report {
@@ -550,13 +557,44 @@ mod tests {
     }
 
     #[test]
+    fn colors_merge_between_machines() {
+        tauri::async_runtime::block_on(async {
+            let (a, c, b, sa, sc) = (tmp("ca"), tmp("cc"), tmp("cb"), tmp("csa"), tmp("csc"));
+            let t = target(&b);
+            put(&a, "x.md", "x");
+            put(&a, "y.md", "y");
+            crate::colors::set(&a, &[("x.md".into(), "red".into())]).unwrap();
+            sync(&a, &sa, &t).await;
+            // the second machine colours another note before its first sync
+            crate::colors::set(&c, &[("y.md".into(), "blue".into())]).unwrap();
+            let r = sync(&c, &sc, &t).await;
+            assert!(r.conflicts.is_empty());
+            let l = crate::colors::list(&c);
+            assert_eq!((l["x.md"].as_str(), l["y.md"].as_str()), ("red", "blue"));
+            // the first machine changes and removes colours, the second gets it
+            sync(&a, &sa, &t).await;
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            crate::colors::set(&a, &[("x.md".into(), "".into()), ("y.md".into(), "green".into())]).unwrap();
+            sync(&a, &sa, &t).await;
+            sync(&c, &sc, &t).await;
+            assert_eq!(crate::colors::list(&c).into_iter().collect::<Vec<_>>(), vec![("y.md".to_string(), "green".to_string())]);
+            // the stars file is left as it was
+            assert!(crate::stars::list(&c).is_empty());
+            for d in [a, b, c, sa, sc] {
+                let _ = std::fs::remove_dir_all(d);
+            }
+        });
+    }
+
+    #[test]
     fn new_remote_place_starts_fresh() {
         tauri::async_runtime::block_on(async {
             let (a, b, c, st) = (tmp("fa"), tmp("fb"), tmp("fc"), tmp("fst"));
             put(&a, "keep.md", "k");
             sync(&a, &st, &target(&b)).await;
             // the same target id pointed at an empty folder must not delete local notes
-            let r = sync(&a, &st, &target(&c)).await;
+            let moved = Target { id: target(&b).id, ..target(&c) };
+            let r = sync(&a, &st, &moved).await;
             assert_eq!((r.deleted_local, r.uploaded), (0, 1));
             assert!(a.join("keep.md").exists());
             for d in [a, b, c, st] {

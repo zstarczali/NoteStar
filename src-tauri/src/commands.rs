@@ -614,3 +614,18 @@ pub async fn stars_import(state: State<'_, AppState>, rels: Vec<String>) -> Resu
     })
     .await
 }
+
+// ── note colours (a file in the notes folder, so they sync) ──
+
+#[tauri::command]
+pub async fn colors_list(state: State<'_, AppState>) -> Result<std::collections::BTreeMap<String, String>, String> {
+    let root = state.notes_dir();
+    blocking(move || Ok(crate::colors::list(&root))).await
+}
+
+/// `changes`: `[path, colour]` pairs ("" = none); returns the coloured notes after it.
+#[tauri::command]
+pub async fn colors_set(state: State<'_, AppState>, changes: Vec<(String, String)>) -> Result<std::collections::BTreeMap<String, String>, String> {
+    let root = state.notes_dir();
+    blocking(move || crate::colors::set(&root, &changes)).await
+}
